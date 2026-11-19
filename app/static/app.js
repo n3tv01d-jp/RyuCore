@@ -1,6 +1,9 @@
 /* RyuCore 竜核 — main UI. Depends on md.js (MD) and ui.js (helpers). */
 'use strict';
 
+/* touch screens: don't summon the on-screen keyboard unless the user tapped a text field */
+const TOUCH = matchMedia('(pointer: coarse)');
+
 const S = {
   view: 'chat', info: {}, settings: {}, models: [], modelStatus: {}, providers: [], chats: [],
   chat: null, msgs: [], live: null, streaming: null, attach: [], skillChips: [], skills: [],
@@ -50,9 +53,11 @@ const pop = {
     this.el.style.width = Math.min(w, innerWidth - 24) + 'px';
     let left = Math.min(r.left, innerWidth - Math.min(w, innerWidth - 24) - 12);
     this.el.style.left = Math.max(12, left) + 'px';
-    const below = innerHeight - r.bottom, ph = this.el.offsetHeight;
-    if (below < ph + 12 && r.top > below) { this.el.style.top = ''; this.el.style.bottom = (innerHeight - r.top + 6) + 'px'; }
+    this.el.style.maxHeight = '';
+    const below = innerHeight - r.bottom, ph = this.el.offsetHeight, up = below < ph + 12 && r.top > below;
+    if (up) { this.el.style.top = ''; this.el.style.bottom = (innerHeight - r.top + 6) + 'px'; }
     else { this.el.style.bottom = ''; this.el.style.top = (r.bottom + 6) + 'px'; }
+    this.el.style.maxHeight = Math.max(160, Math.min(520, (up ? r.top : below) - 18)) + 'px';
     anchor.setAttribute?.('aria-expanded', 'true');
   },
   close() {
@@ -104,7 +109,7 @@ function openModelPicker(anchor, current, onPick, { none = null, filter = null }
   });
   draw();
   pop.open(anchor, box, { width: 360 });
-  input.focus();
+  if (!TOUCH.matches) input.focus();
 }
 
 /* ═════════════ data loading ═════════════ */
@@ -158,14 +163,22 @@ $('#sessList').addEventListener('click', async e => {
     loadChats(); return;
   }
   openChat(c.id);
-  $('#sessPanel').classList.remove('open');
+  setDrawer(false);
 });
 $('#sessList').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.si')) e.target.click(); });
 let sessT;
 $('#sessQ').addEventListener('input', e => { clearTimeout(sessT); sessT = setTimeout(() => { S.sessQ = e.target.value.trim(); loadChats(); }, 250); });
-$('#newChat').addEventListener('click', () => { newDraft(); $('#sessPanel').classList.remove('open'); });
-$('#newGhost').addEventListener('click', () => { newDraft({ brain: false }); $('#sessPanel').classList.remove('open'); toast('GHOST SESSION // 無記憶 — the brain is off', ''); });
-$('#sessToggle').addEventListener('click', () => $('#sessPanel').classList.toggle('open'));
+$('#newChat').addEventListener('click', () => { newDraft(); setDrawer(false); });
+$('#newGhost').addEventListener('click', () => { newDraft({ brain: false }); setDrawer(false); toast('GHOST SESSION // 無記憶 — the brain is off', ''); });
+$('#sessToggle').addEventListener('click', () => setDrawer(!$('#sessPanel').classList.contains('open')));
+$('#sessClose').addEventListener('click', () => setDrawer(false));
+$('#sessScrim').addEventListener('click', () => setDrawer(false));
+/* sessions slide in as a drawer on narrow screens */
+function setDrawer(on) {
+  $('#sessPanel').classList.toggle('open', on);
+  $('#sessScrim').classList.toggle('on', on);
+  $('#sessToggle').setAttribute('aria-expanded', String(on));
+}
 
 function newDraft(opts = {}) {
   if (S.streaming) stop();
@@ -177,7 +190,7 @@ function newDraft(opts = {}) {
   S.msgs = []; S.live = null; S.openFolds.clear();
   store.set('chat', '');
   renderChat();
-  $('#input').focus();
+  if (!TOUCH.matches) $('#input').focus();
 }
 async function openChat(id) {
   if (S.streaming) stop();
@@ -485,7 +498,8 @@ function paintLive() {
 function setSending(on) {
   const b = $('#sendBtn');
   b.classList.toggle('stop', on);
-  b.textContent = on ? '■ STOP' : 'TRANSMIT ▸';
+  b.innerHTML = on ? '■<span class="sl"> STOP</span>' : '<span class="sl">TRANSMIT </span>▸';
+  b.setAttribute('aria-label', on ? 'Stop' : 'Send');
   b.type = on ? 'button' : 'submit';
 }
 function stop() { S.streaming?.ctrl.abort(); }
@@ -591,6 +605,13 @@ async function editUser(id) {
 const input = $('#input');
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + 'px'; }
 input.addEventListener('input', () => { autosize(); slashCheck(); });
+/* phones: hide the bottom tab bar while typing so the keyboard leaves room for the conversation */
+input.addEventListener('focus', () => document.body.classList.add('typing'));
+/* wait a beat on blur: a tap on ▸ must land before the tab bar returns and shifts the composer */
+input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) document.body.classList.remove('typing'); }, 300));
+const PHONE = matchMedia('(max-width: 700px)');
+const syncPlaceholder = () => { input.placeholder = PHONE.matches ? 'TRANSMIT // 送信  ( / skills )' : 'TRANSMIT TO THE CORE… // 送信  ( / for skills )'; };
+PHONE.addEventListener?.('change', syncPlaceholder); syncPlaceholder();
 input.addEventListener('keydown', e => {
   if (!pop.el.hidden && pop.onkey && pop.onkey(e)) return;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(hover: none)').matches) { e.preventDefault(); $('#composer').requestSubmit(); }
@@ -677,11 +698,12 @@ async function slashCheck() {
 function showView(v) {
   if (!VIEWS.includes(v)) v = 'chat';
   S.view = v;
+  document.body.dataset.view = v;
   for (const x of VIEWS) $(`#v-${x}`).hidden = x !== v;
   $$('.vtab').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   pop.close();
   if (location.hash !== '#' + v) history.replaceState(null, '', v === 'chat' ? location.pathname + location.search : '#' + v);
-  ({ brain: loadBrain, skills: loadSkills, mcp: loadMcp, models: renderProviders, system: renderSystem, chat: () => input.focus() })[v]?.();
+  ({ brain: loadBrain, skills: loadSkills, mcp: loadMcp, models: renderProviders, system: renderSystem, chat: () => { if (!TOUCH.matches) input.focus(); } })[v]?.();
 }
 $('#viewNav').addEventListener('click', e => { const b = e.target.closest('.vtab'); if (b) showView(b.dataset.v); });
 
@@ -1073,7 +1095,7 @@ document.addEventListener('keydown', e => {
     if (pop.close() || modal.close()) return;
     if ($('.lightbox')) { $('.lightbox').remove(); return; }
     if (S.streaming) { stop(); return; }
-    $('#sessPanel').classList.remove('open');
+    setDrawer(false);
     return;
   }
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
