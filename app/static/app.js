@@ -612,6 +612,14 @@ input.addEventListener('blur', () => setTimeout(() => { if (document.activeEleme
 const PHONE = matchMedia('(max-width: 700px)');
 const syncPlaceholder = () => { input.placeholder = PHONE.matches ? 'TRANSMIT // 送信  ( / skills )' : 'TRANSMIT TO THE CORE… // 送信  ( / for skills )'; };
 PHONE.addEventListener?.('change', syncPlaceholder); syncPlaceholder();
+/* phones: the section tabs sit at the bottom of the page *in the layout flow* (not position:fixed), so they can never
+   cover the composer — and the page is sized to the height actually visible, which 100vh/100dvh get wrong in some
+   mobile browsers (toolbars, in-app webviews), pushing the composer under the bar or off-screen */
+const viewNav = $('#viewNav'), navHome = viewNav.nextElementSibling;
+const placeNav = () => { if (PHONE.matches) $('#foot').after(viewNav); else navHome.before(viewNav); };
+PHONE.addEventListener?.('change', placeNav); placeNav();
+const fitApp = () => document.documentElement.style.setProperty('--app-h', innerHeight + 'px');
+addEventListener('resize', fitApp); visualViewport?.addEventListener('resize', fitApp); fitApp();
 input.addEventListener('keydown', e => {
   if (!pop.el.hidden && pop.onkey && pop.onkey(e)) return;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(hover: none)').matches) { e.preventDefault(); $('#composer').requestSubmit(); }
