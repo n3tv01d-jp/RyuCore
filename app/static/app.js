@@ -615,8 +615,18 @@ function setNavMenu(on) { document.body.classList.toggle('nav-open', on); navBtn
 navBtn.addEventListener('click', e => { e.stopPropagation(); setNavMenu(!document.body.classList.contains('nav-open')); });
 document.addEventListener('click', e => { if (!e.target.closest('#viewNav')) setNavMenu(false); });
 PHONE.addEventListener?.('change', () => setNavMenu(false));
-const fitApp = () => document.documentElement.style.setProperty('--app-h', innerHeight + 'px');
-addEventListener('resize', fitApp); visualViewport?.addEventListener('resize', fitApp); fitApp();
+/* use the smallest of the reported heights: innerHeight can include area under a floating toolbar, and on iOS only
+   visualViewport shrinks for the keyboard. While the keyboard is up, drop the home-indicator padding and undo iOS's
+   page pan so the header stays put and the composer sits right above the keys. */
+const fitApp = () => {
+  const vv = window.visualViewport, h = Math.min(innerHeight, document.documentElement.clientHeight || innerHeight, vv ? vv.height : innerHeight);
+  document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
+  const kb = !!vv && innerHeight - vv.height > 120;
+  document.body.classList.toggle('kb-open', kb);
+  if (scrollY) scrollTo(0, 0);
+};
+addEventListener('resize', fitApp); addEventListener('orientationchange', fitApp); addEventListener('pageshow', fitApp);
+visualViewport?.addEventListener('resize', fitApp); visualViewport?.addEventListener('scroll', fitApp); fitApp();
 input.addEventListener('keydown', e => {
   if (!pop.el.hidden && pop.onkey && pop.onkey(e)) return;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(hover: none)').matches) { e.preventDefault(); $('#composer').requestSubmit(); }

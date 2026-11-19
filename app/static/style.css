@@ -244,7 +244,7 @@ a.brand { color: inherit; text-decoration: none; }
 .nav-btn[aria-expanded="true"] .burger i:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
 .sw { display: inline-flex; width: 22px; height: 10px; flex: none; }
 .sw i { flex: 1; }
-.theme-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 210px; padding: 6px; max-height: calc(100vh - 90px); overflow-y: auto;
+.theme-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 210px; padding: 6px; max-height: calc(var(--app-h, 100svh) - 90px); overflow-y: auto;
   background: rgba(var(--s-rgb), .98); border: 1px solid var(--a1-d); box-shadow: 0 10px 40px rgba(0, 0, 0, .6); }
 .theme-menu button { cursor: pointer; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px;
   background: transparent; border: 0; text-align: left; font: 700 11px var(--f-disp); letter-spacing: .14em; color: var(--dim); }
@@ -340,7 +340,7 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 5px; font: 10px/1.4 v
 /* modal */
 .modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .6); }
 .modal[hidden] { display: none; }
-.modal-box { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column;
+.modal-box { width: min(560px, 100%); max-height: calc(var(--app-h, 100svh) - 32px); display: flex; flex-direction: column;
   background: rgba(var(--s-rgb), .99); border: 1px solid var(--a1-d); clip-path: var(--chamfer);
   box-shadow: 0 20px 80px rgba(0, 0, 0, .7), 0 0 30px rgba(var(--a1-rgb), .12); animation: panelIn .35s cubic-bezier(.2, .8, .2, 1); }
 .modal.wide .modal-box { width: min(1000px, 100%); }
@@ -406,7 +406,11 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 5px; font: 10px/1.4 v
 button { cursor: pointer; }
 textarea, select { font: inherit; color: inherit; }
 .tgl:hover:not(.on):not(:disabled) { color: var(--text); border-color: var(--a1-d); }
-body.app { height: 100vh; height: 100dvh; height: var(--app-h, 100dvh); display: flex; flex-direction: column; overflow: hidden; }
+/* the app is exactly the visible height: min-height must be reset, or the base 100vh (= the *largest* viewport, toolbars
+   hidden) wins over height and pushes the composer / page bottoms under the browser toolbar on phones */
+body.app { min-height: 0; height: 100vh; height: 100svh; height: var(--app-h, 100svh); display: flex; flex-direction: column; overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom); }
+body.app.kb-open { padding-bottom: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* brand mark: a dragon's eye inside the core hex */
@@ -626,7 +630,7 @@ body.app { height: 100vh; height: 100dvh; height: var(--app-h, 100dvh); display:
 .send.stop { background: var(--red); border-color: var(--red); color: #fff; box-shadow: 0 0 14px rgba(255, 59, 92, .45); }
 
 /* ── popovers (model picker, slash menu, menus) ── */
-.pop { position: fixed; z-index: 85; min-width: 260px; max-width: min(460px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 80px));
+.pop { position: fixed; z-index: 85; min-width: 260px; max-width: min(460px, calc(100vw - 24px)); max-height: min(520px, calc(var(--app-h, 100svh) - 80px));
   display: flex; flex-direction: column; background: rgba(var(--s-rgb), .985); border: 1px solid var(--a1-d);
   box-shadow: 0 14px 50px rgba(0, 0, 0, .65), 0 0 24px rgba(var(--a1-rgb), .1); animation: panelIn .2s ease; }
 .pop[hidden] { display: none; }
@@ -757,7 +761,7 @@ body.app { height: 100vh; height: 100dvh; height: var(--app-h, 100dvh); display:
 
 /* lightbox */
 .lightbox { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; background: rgba(0, 0, 0, .85); cursor: zoom-out; }
-.lightbox img { max-width: 94vw; max-height: 92vh; border: 1px solid var(--a1-d); }
+.lightbox img { max-width: 94vw; max-height: calc(var(--app-h, 100svh) * .92); border: 1px solid var(--a1-d); }
 
 /* responsive */
 .sess-toggle, .sess-close, .gb-short, .nav-btn { display: none; }
@@ -896,7 +900,7 @@ body.app { height: 100vh; height: 100dvh; height: var(--app-h, 100dvh); display:
 
   /* dialogs become bottom sheets */
   .modal { padding: 0; place-items: end stretch; }
-  .modal-box, .modal.wide .modal-box, .modal.sm .modal-box { width: 100%; max-height: calc(100dvh - 12px - env(safe-area-inset-top));
+  .modal-box, .modal.wide .modal-box, .modal.sm .modal-box { width: 100%; max-height: calc(var(--app-h, 100svh) - 12px - env(safe-area-inset-top));
     clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%, 0 var(--cut));
     border-bottom: 0; animation: sheetIn .3s cubic-bezier(.2, .8, .2, 1); }
   .modal-box > header { padding: 10px 12px 10px 16px; }
@@ -947,7 +951,7 @@ body.app { height: 100vh; height: 100dvh; height: var(--app-h, 100dvh); display:
   .page { padding: 8px 12px 12px; }
   body[data-view="chat"] .foot { display: none; }
   .modal { padding: 6px; }
-  .modal-box { max-height: calc(100dvh - 12px); }
+  .modal-box { max-height: calc(var(--app-h, 100svh) - 12px); }
 }
 @media (max-width: 700px) and (max-height: 500px) {
   .vtab { padding: 9px 12px; }
