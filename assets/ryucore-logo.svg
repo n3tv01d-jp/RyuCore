@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="256" height="256">
+  <title>RyuCore</title>
+  <defs>
+    <filter id="glow-a1" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-a2" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <style>
+    .pupil { transform-origin: 24px 24px; animation: blink 6s ease-in-out infinite; }
+    .core  { animation: pulse 2.4s ease-in-out infinite; }
+    @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+    @media (prefers-reduced-motion: reduce) { .pupil, .core { animation: none; } }
+  </style>
+  <!-- core hex -->
+  <path d="M24 3 42 13.5v21L24 45 6 34.5v-21z" fill="none" stroke="#3ef3ff" stroke-width="2" stroke-linejoin="round" filter="url(#glow-a1)"/>
+  <!-- dragon's eye -->
+  <path d="M9 24Q24 9 39 24 24 39 9 24z" fill="#ff3ea5" fill-opacity=".12" stroke="#ff3ea5" stroke-width="2" filter="url(#glow-a2)"/>
+  <!-- slit pupil -->
+  <path class="pupil" d="M24 14.5c2.4 3 2.4 16 0 19-2.4-3-2.4-16 0-19z" fill="#ff3ea5" filter="url(#glow-a2)"/>
+  <!-- core -->
+  <circle class="core" cx="24" cy="24" r="1.6" fill="#3ef3ff"/>
+</svg>

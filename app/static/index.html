@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+<title>RYUCORE // 竜核</title>
+<meta name="theme-color" content="#05060d">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getItem('ryucore.theme');if(t&&t!=='hearth')document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="app">
+<div class="bg-hex" aria-hidden="true"></div>
+<div class="bg-scan" aria-hidden="true"></div>
+
+<div id="boot" aria-hidden="true">
+  <div class="boot-box">
+    <div class="boot-logo">RYUCORE<span>竜核 · AI COMMAND CORE</span></div>
+    <pre id="bootLog"></pre>
+    <div class="boot-bar"><i id="bootBar"></i></div>
+  </div>
+</div>
+
+<header class="top r-top">
+  <a class="brand" href="./" title="RyuCore">
+    <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M24 3 42 13.5v21L24 45 6 34.5v-21z" class="bm-hex"/>
+      <path d="M9 24Q24 9 39 24 24 39 9 24z" class="bm-eye"/>
+      <path d="M24 14.5c2.4 3 2.4 16 0 19-2.4-3-2.4-16 0-19z" class="bm-pupil"/>
+      <circle cx="24" cy="24" r="1.6" class="bm-core"/>
+    </svg>
+    <div>
+      <div class="logo">RYUCORE<em>竜核</em></div>
+      <div class="sub">竜核 · AI COMMAND CORE</div>
+    </div>
+  </a>
+  <nav class="views" id="viewNav" aria-label="Sections">
+    <button type="button" class="vtab on" data-v="chat"><b>CHAT</b><em>対話</em></button>
+    <button type="button" class="vtab" data-v="brain"><b>BRAIN</b><em>記憶</em></button>
+    <button type="button" class="vtab" data-v="skills"><b>SKILLS</b><em>技能</em></button>
+    <button type="button" class="vtab" data-v="mcp"><span class="dot" id="mcpDot"></span><b>MCP</b><em>接続</em></button>
+    <button type="button" class="vtab" data-v="models"><b>MODELS</b><em>演算</em></button>
+    <button type="button" class="vtab" data-v="system"><b>SYSTEM</b><em>設定</em></button>
+  </nav>
+  <div class="hud-ctl">
+    <div class="theme-pick">
+      <button class="tbtn" id="themeBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Theme (T)">
+        <span class="sw"><i style="background:var(--a1)"></i><i style="background:var(--a2)"></i><i style="background:var(--a3)"></i></span><span id="themeName">HEARTH</span>
+      </button>
+      <div class="theme-menu" id="themeMenu" hidden></div>
+    </div>
+    <div class="link" id="link" title="Event link to the core"><i></i><span>NO LINK</span></div>
+  </div>
+</header>
+
+<!-- ═════ CHAT 対話 ═════ -->
+<main class="view chat-view" id="v-chat">
+  <aside class="panel fill sess" id="sessPanel">
+    <div class="ph"><span class="no">01</span><h2>SESSIONS</h2><span class="jp">履歴</span><span class="meta" id="sessMeta"></span></div>
+    <div class="sess-new">
+      <button class="tgl on" id="newChat" type="button" title="New session (Alt+N)">＋ NEW SESSION</button>
+      <button class="tgl ghost" id="newGhost" type="button" title="New session without the brain: nothing is recalled or remembered">◌ GHOST</button>
+    </div>
+    <input class="sess-q" id="sessQ" type="search" placeholder="SEARCH // 検索" autocomplete="off" aria-label="Search sessions">
+    <ul class="sess-list" id="sessList"></ul>
+  </aside>
+
+  <section class="panel fill convo" id="convo">
+    <div class="ph">
+      <button class="tgl sm sess-toggle" id="sessToggle" type="button" aria-label="Sessions">☰</button>
+      <span class="no">02</span><h2 id="chatTitle" title="Click to rename">NEW SESSION</h2><span class="jp">対話</span>
+      <span class="meta" id="chatMeta"></span>
+    </div>
+    <div class="c-bar">
+      <button class="model-btn" id="modelBtn" type="button" aria-haspopup="listbox" aria-expanded="false" title="Model (M)"><span class="mb-name mb-none">SELECT MODEL</span></button>
+      <button class="tgl mode" id="agentTgl" type="button" aria-pressed="false" title="Agent mode: tools, MCP, skills (A)"><span class="sw-dot"></span>AGENT<em>自律</em></button>
+      <button class="tgl mode on" id="brainTgl" type="button" aria-pressed="true" title="Brain: recall and learn memories in this session (B)"><span class="sw-dot"></span>BRAIN<em>記憶</em></button>
+      <button class="tgl mode council" id="councilTgl" type="button" aria-pressed="false" title="Council: several models answer and vote (C)"><span class="sw-dot"></span>COUNCIL<em>評議</em></button>
+      <span class="sp"></span>
+      <button class="tgl sm" id="sysBtn" type="button" title="Session prompt and temperature">⚙ TUNE</button>
+      <button class="tgl sm" id="exportBtn" type="button" title="Export this session">⤓</button>
+    </div>
+    <div class="ghost-banner" id="ghostBanner" hidden><b>GHOST SESSION // 無記憶</b>The brain is off: nothing is recalled and nothing from this session will be remembered.</div>
+    <div class="msgs" id="msgs" aria-live="polite"></div>
+    <form class="composer" id="composer" autocomplete="off">
+      <div class="cp-chips" id="cpChips"></div>
+      <label class="sr" for="input">Message</label>
+      <textarea id="input" rows="1" placeholder="TRANSMIT TO THE CORE… // 送信  ( / for skills )"></textarea>
+      <div class="cp-row">
+        <button class="ib" id="attachBtn" type="button" title="Attach images or text files">＋</button>
+        <input id="fileIn" type="file" multiple hidden>
+        <span class="cp-hint" id="cpHint">ENTER send · SHIFT+ENTER newline · / skills · drop files</span>
+        <button class="send" id="sendBtn" type="submit">TRANSMIT ▸</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<!-- ═════ BRAIN 記憶 ═════ -->
+<main class="view page page-2" id="v-brain" hidden>
+  <section class="panel">
+    <div class="ph"><span class="no">01</span><h2>MEMORY BANK</h2><span class="jp">記憶庫</span><span class="meta" id="memMeta"></span></div>
+    <div class="mem-tools">
+      <input id="memQ" type="search" placeholder="FILTER // 検索" aria-label="Filter memories">
+      <div class="seg-tabs" id="memKinds"></div>
+      <span class="grow"></span>
+      <button class="tgl" id="memAdd" type="button">＋ ADD</button>
+    </div>
+    <ul class="mem-list" id="memList"></ul>
+  </section>
+  <div style="display:grid;gap:16px">
+    <section class="panel">
+      <div class="ph"><span class="no">02</span><h2>CORTEX</h2><span class="jp">皮質</span></div>
+      <div class="stat-tiles" id="brainStats"></div>
+      <div class="set-row"><div><b>Auto-learn</b><small>After each reply, a model extracts durable facts about you.</small></div><button class="tgl sm" id="bAuto" type="button">ON</button></div>
+      <div class="set-row"><div><b>Learning model</b><small>Reads exchanges and writes memories. Empty = the session's model.</small></div><button class="model-btn" id="bModel" type="button"></button></div>
+      <div class="set-row"><div><b>Embedding model</b><small>Semantic recall (e.g. Ollama <code>nomic-embed-text</code>). Empty = keyword recall.</small></div><button class="model-btn" id="bEmbed" type="button"></button></div>
+      <div class="set-row"><div><b>Recall depth</b><small>Memories injected per message (plus pinned).</small></div><input type="number" id="bK" min="1" max="30"></div>
+      <div class="sb-btns">
+        <button class="tgl" id="bReembed" type="button">RE-EMBED ALL</button>
+        <button class="tgl" id="bExport" type="button">EXPORT</button>
+        <button class="tgl" id="bImport" type="button">IMPORT</button>
+        <button class="tgl" id="bWipe" type="button" style="color:var(--red)">WIPE</button>
+        <input type="file" id="bImportFile" accept=".json,application/json" hidden>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="ph"><span class="no">03</span><h2>RECALL TEST</h2><span class="jp">想起</span></div>
+      <form class="mem-tools" id="recallForm"><input id="recallQ" placeholder="What would the brain recall for…" aria-label="Recall test query"><button class="tgl" type="submit">PROBE</button></form>
+      <ul class="mem-list" id="recallList"></ul>
+    </section>
+    <section class="panel">
+      <div class="ph"><span class="no">04</span><h2>SYNAPSE LOG</h2><span class="jp">学習記録</span></div>
+      <ul class="feed" id="brainFeed"><li class="empty" style="display:block">Waiting for the brain to learn something…</li></ul>
+    </section>
+  </div>
+</main>
+
+<!-- ═════ SKILLS 技能 ═════ -->
+<main class="view page" id="v-skills" hidden>
+  <section class="panel">
+    <div class="ph"><span class="no">01</span><h2>SKILLS</h2><span class="jp">技能</span><span class="meta" id="skMeta"></span>
+      <span class="tools"><button class="tgl sm" id="skImport" type="button">⤒ IMPORT</button><button class="tgl sm on" id="skNew" type="button">＋ NEW SKILL</button></span></div>
+    <p class="hint" style="margin-bottom:12px">A skill is a <code>SKILL.md</code> with a <b>name</b> and <b>description</b> in its front matter, followed by instructions.
+      In <b>agent mode</b> the model sees every enabled skill's description and loads the full text when a task matches. In any mode, type <code>/</code> in the composer to attach a skill to your message.
+      Import a <code>.md</code> file or a <code>.zip</code> of skill folders (Anthropic skill format).</p>
+    <input type="file" id="skFile" accept=".md,.zip,text/markdown,application/zip" hidden>
+    <div class="cards2" id="skList"></div>
+  </section>
+</main>
+
+<!-- ═════ MCP 接続 ═════ -->
+<main class="view page" id="v-mcp" hidden>
+  <section class="panel">
+    <div class="ph"><span class="no">01</span><h2>MCP SERVERS</h2><span class="jp">接続</span><span class="meta" id="mcpMeta"></span>
+      <span class="tools"><button class="tgl sm" id="mcpImport" type="button">⤒ IMPORT JSON</button><button class="tgl sm on" id="mcpAdd" type="button">＋ ADD SERVER</button></span></div>
+    <p class="hint" style="margin-bottom:12px">Tools from every <b>ready</b> server are offered to the model in <b>agent mode</b>.
+      <b>stdio</b> servers run inside the RyuCore container (<code>npx</code> and <code>uvx</code> are installed); <b>http</b> is Streamable HTTP; <b>sse</b> is the older HTTP+SSE transport.</p>
+    <div class="cards2" id="mcpList"></div>
+  </section>
+  <section class="panel">
+    <div class="ph"><span class="no">02</span><h2>BUILT-IN TOOLS</h2><span class="jp">装備</span><span class="meta" id="toolMeta"></span></div>
+    <div class="tool-grid" id="toolList"></div>
+  </section>
+</main>
+
+<!-- ═════ MODELS 演算 ═════ -->
+<main class="view page" id="v-models" hidden>
+  <section class="panel">
+    <div class="ph"><span class="no">01</span><h2>PROVIDERS</h2><span class="jp">演算核</span><span class="meta" id="provMeta"></span>
+      <span class="tools"><button class="tgl sm" id="provRefresh" type="button">↻ RESCAN</button><button class="tgl sm on" id="provAdd" type="button">＋ ADD PROVIDER</button></span></div>
+    <p class="hint" style="margin-bottom:12px">Local servers (Ollama, vLLM, llama.cpp, LM Studio) and most clouds speak the OpenAI API; Anthropic uses its native API.
+      Inside Docker, reach the host with <code>host.docker.internal</code>. Keys set in <code>.env</code> are read from the environment and never stored.</p>
+    <div class="cards2" id="provList"></div>
+  </section>
+  <section class="panel">
+    <div class="ph"><span class="no">02</span><h2>DEFAULTS</h2><span class="jp">既定</span></div>
+    <div class="set-row"><div><b>Default model</b><small>Used for new sessions.</small></div><button class="model-btn" id="defModel" type="button"></button></div>
+  </section>
+</main>
+
+<!-- ═════ SYSTEM 設定 ═════ -->
+<main class="view page page-2" id="v-system" hidden>
+  <section class="panel">
+    <div class="ph"><span class="no">01</span><h2>DIRECTIVES</h2><span class="jp">指令</span></div>
+    <form class="g-form" id="sysForm">
+      <label>GLOBAL SYSTEM PROMPT<textarea id="sGlobal" rows="6" placeholder="Instructions added to every session (persona, tone, rules)…"></textarea></label>
+      <div class="two">
+        <label>AGENT STEP LIMIT<input type="number" id="sSteps" min="1" max="60"></label>
+        <label>HISTORY LIMIT (MESSAGES)<input type="number" id="sHist" min="4" max="1000"></label>
+      </div>
+      <div class="two">
+        <label>ANTHROPIC MAX TOKENS<input type="number" id="sAnth" min="256" max="128000"></label>
+        <label>AUTO TITLES<select id="sTitle"><option value="1">ON — the model names sessions</option><option value="0">OFF</option></select></label>
+      </div>
+      <div class="row"><span class="sp"></span><button class="tgl on" type="submit">SAVE DIRECTIVES</button></div>
+    </form>
+  </section>
+  <div style="display:grid;gap:16px">
+    <section class="panel">
+      <div class="ph"><span class="no">02</span><h2>THEME</h2><span class="jp">配色</span></div>
+      <div class="sb-themes" id="themeGrid"></div>
+      <div class="sb-tgl">Boot intro <button class="tgl sm" id="bootTgl" type="button">ON</button></div>
+    </section>
+    <section class="panel">
+      <div class="ph"><span class="no">03</span><h2>CORE STATUS</h2><span class="jp">状態</span></div>
+      <dl class="sb-kv" id="sysInfo"></dl>
+      <button class="tgl sb-wide" id="logoutBtn" type="button" hidden>LOG OUT</button>
+    </section>
+    <section class="panel">
+      <div class="ph"><span class="no">04</span><h2>KEYS</h2><span class="jp">操作</span></div>
+      <div class="keys">
+        <kbd>Alt N</kbd><span>New session</span><kbd>Alt G</kbd><span>New ghost session (no brain)</span>
+        <kbd>/</kbd><span>Skill menu (in the composer)</span><kbd>Esc</kbd><span>Stop generating / close</span>
+        <kbd>Alt 1…6</kbd><span>Switch section</span><kbd>Alt T</kbd><span>Next theme</span>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div class="pop" id="pop" hidden></div>
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-box">
+    <header><h3 id="modalTitle"></h3><button class="sb-x" id="modalClose" type="button" aria-label="Close">✕</button></header>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<footer class="foot" id="foot">RYUCORE 竜核 · <span id="footInfo">connecting</span></footer>
+
+<script src="md.js"></script>
+<script src="ui.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+# ───────────────────────── Secrets & credentials ─────────────────────────
+# Environment files (keep only the template)
+.env
+.env.*
+*.env
+!.env.example
+
+# Local compose overrides (often carry real keys/paths)
+docker-compose.override.yml
+docker-compose.*.local.yml
+compose.override.yml
+
+# Generic secret / credential files
+secrets/
+.secrets/
+secret*.json
+secrets.*
+credentials*.json
+credentials.*
+*.credentials
+service-account*.json
+client_secret*.json
+token.json
+tokens.json
+*.token
+.netrc
+.npmrc
+.pypirc
+auth.json
+
+# Keys & certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.csr
+*.jks
+*.keystore
+*.gpg
+*.asc
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.ppk
+
+# Claude Code / AI tooling local state
+.claude/settings.local.json
+.claude/*.local.*
+CLAUDE.local.md
+
+# ───────────────────────── Runtime data ─────────────────────────
+# RyuCore data dir: SQLite (chats, brain, settings), generated cookie secret,
+# skills, agent workspace
+data/
+/workspace/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Backups / dumps
+*.bak
+*.backup
+*.dump
+*.sql.gz
+*.tar.gz
+*.zip
+
+# ───────────────────────── Python ─────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+.eggs/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+.tox/
+.nox/
+.hypothesis/
+.cache/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ───────────────────────── Node (if tooling is ever added) ─────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ───────────────────────── Editors / IDEs ─────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-*
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+
+# ───────────────────────── OS clutter ─────────────────────────
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.directory
+.Trash-*
+
+# ───────────────────────── Logs / scratch ─────────────────────────
+*.log
+logs/
+*.pid
+*.tmp
+*.temp
+tmp/
+scratch/

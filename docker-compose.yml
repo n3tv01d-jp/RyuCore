@@ -1,0 +1,59 @@
+# RyuCore 竜核 — AI command core.
+#   cp .env.example .env            # optional: API keys, password
+#   docker compose up -d --build    → http://<this-host>:8090
+#
+# Bundled Ollama (optional):  docker compose --profile ollama up -d --build
+#   then set RYU_OLLAMA_URL=http://ollama:11434/v1 in .env (or edit the provider in MODELS).
+services:
+  ryucore:
+    build: .
+    image: ryucore:latest
+    container_name: ryucore
+    restart: unless-stopped
+    ports:
+      - "${RYU_PUBLISH:-8090}:8090"
+    # lets the container reach model servers running on the Docker host
+    # (Ollama on :11434, vLLM on :8000, llama.cpp on :8080, LM Studio on :1234)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      RYU_PASSWORD: "${RYU_PASSWORD:-}"           # set to require a login (strongly recommended off-LAN)
+      RYU_SECRET: "${RYU_SECRET:-}"               # cookie signing secret; random per volume if empty
+      RYU_ALLOW_SHELL: "${RYU_ALLOW_SHELL:-0}"    # 1 = agents may run shell / python inside this container
+      RYU_SEARXNG_URL: "${RYU_SEARXNG_URL:-}"     # web_search via your SearXNG (JSON format enabled)
+      RYU_MAX_STEPS: "${RYU_MAX_STEPS:-12}"       # agent tool-loop limit per turn
+      # local model servers (seeded into MODELS on boot; editable in the UI)
+      RYU_OLLAMA_URL: "${RYU_OLLAMA_URL:-http://host.docker.internal:11434/v1}"
+      RYU_VLLM_URL: "${RYU_VLLM_URL:-}"
+      RYU_LLAMACPP_URL: "${RYU_LLAMACPP_URL:-}"
+      RYU_LMSTUDIO_URL: "${RYU_LMSTUDIO_URL:-}"
+      # cloud keys (read from the environment, never written to the database)
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      XAI_API_KEY: "${XAI_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - ryucore-data:/data      # SQLite (chats, brain, settings), skills, agent workspace
+
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    container_name: ryucore-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    # NVIDIA GPU: install nvidia-container-toolkit, then uncomment
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - { driver: nvidia, count: all, capabilities: [gpu] }
+
+volumes:
+  ryucore-data:
+  ollama-models:
