@@ -605,19 +605,16 @@ async function editUser(id) {
 const input = $('#input');
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + 'px'; }
 input.addEventListener('input', () => { autosize(); slashCheck(); });
-/* phones: hide the bottom tab bar while typing so the keyboard leaves room for the conversation */
-input.addEventListener('focus', () => document.body.classList.add('typing'));
-/* wait a beat on blur: a tap on ▸ must land before the tab bar returns and shifts the composer */
-input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) document.body.classList.remove('typing'); }, 300));
 const PHONE = matchMedia('(max-width: 700px)');
 const syncPlaceholder = () => { input.placeholder = PHONE.matches ? 'TRANSMIT // 送信  ( / skills )' : 'TRANSMIT TO THE CORE… // 送信  ( / for skills )'; };
 PHONE.addEventListener?.('change', syncPlaceholder); syncPlaceholder();
-/* phones: the section tabs sit at the bottom of the page *in the layout flow* (not position:fixed), so they can never
-   cover the composer — and the page is sized to the height actually visible, which 100vh/100dvh get wrong in some
-   mobile browsers (toolbars, in-app webviews), pushing the composer under the bar or off-screen */
-const viewNav = $('#viewNav'), navHome = viewNav.nextElementSibling;
-const placeNav = () => { if (PHONE.matches) $('#foot').after(viewNav); else navHome.before(viewNav); };
-PHONE.addEventListener?.('change', placeNav); placeNav();
+/* phones: the section tabs fold into a ☰ menu in the header; the page is sized to the height actually visible,
+   which 100vh/100dvh get wrong in some mobile browsers (toolbars, in-app webviews), pushing the composer off-screen */
+const navBtn = $('#navBtn');
+function setNavMenu(on) { document.body.classList.toggle('nav-open', on); navBtn.setAttribute('aria-expanded', String(on)); }
+navBtn.addEventListener('click', e => { e.stopPropagation(); setNavMenu(!document.body.classList.contains('nav-open')); });
+document.addEventListener('click', e => { if (!e.target.closest('#viewNav')) setNavMenu(false); });
+PHONE.addEventListener?.('change', () => setNavMenu(false));
 const fitApp = () => document.documentElement.style.setProperty('--app-h', innerHeight + 'px');
 addEventListener('resize', fitApp); visualViewport?.addEventListener('resize', fitApp); fitApp();
 input.addEventListener('keydown', e => {
@@ -709,7 +706,7 @@ function showView(v) {
   document.body.dataset.view = v;
   for (const x of VIEWS) $(`#v-${x}`).hidden = x !== v;
   $$('.vtab').forEach(b => b.classList.toggle('on', b.dataset.v === v));
-  pop.close();
+  pop.close(); setNavMenu(false);
   if (location.hash !== '#' + v) history.replaceState(null, '', v === 'chat' ? location.pathname + location.search : '#' + v);
   ({ brain: loadBrain, skills: loadSkills, mcp: loadMcp, models: renderProviders, system: renderSystem, chat: () => { if (!TOUCH.matches) input.focus(); } })[v]?.();
 }
@@ -1102,6 +1099,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (pop.close() || modal.close()) return;
     if ($('.lightbox')) { $('.lightbox').remove(); return; }
+    if (document.body.classList.contains('nav-open')) { setNavMenu(false); navBtn.focus(); return; }
     if (S.streaming) { stop(); return; }
     setDrawer(false);
     return;
