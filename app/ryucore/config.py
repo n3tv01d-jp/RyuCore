@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 
 def _flag(name: str, default: str = "0") -> bool:
@@ -17,6 +17,11 @@ SECRET = os.environ.get("RYU_SECRET", "")
 ALLOW_SHELL = _flag("RYU_ALLOW_SHELL")
 SEARXNG_URL = os.environ.get("RYU_SEARXNG_URL", "").rstrip("/")
 MAX_STEPS = max(1, int(os.environ.get("RYU_MAX_STEPS", "12") or 12))
+# HEARTH hub link: fleet tools over MCP + the fleet-wide theme
+HEARTH_URL = os.environ.get("RYU_HEARTH_URL", "").strip().rstrip("/")
+if HEARTH_URL and "://" not in HEARTH_URL:
+    HEARTH_URL = "http://" + HEARTH_URL
+HEARTH_TOKEN = os.environ.get("RYU_HEARTH_TOKEN", "").strip()  # = the hub's HEARTH_MCP_TOKEN, if it has one
 
 DB_PATH = DATA / "ryucore.db"
 SKILLS_DIR = DATA / "skills"

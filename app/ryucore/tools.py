@@ -297,6 +297,10 @@ def specs(brain_on: bool) -> list[dict]:
     return out + mcp.tool_specs()
 
 
+def needs_approval(name: str) -> bool:
+    return name not in BUILTINS and mcp.owns(name) and mcp.needs_approval(name)
+
+
 async def execute(name: str, args: dict, ctx: dict) -> str:
     try:
         if name in BUILTINS:

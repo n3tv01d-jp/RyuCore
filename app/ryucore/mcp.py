@@ -318,6 +318,7 @@ class MCPManager:
     def __init__(self):
         self.clients: dict[str, MCPClient] = {}
         self._map: dict[str, tuple[str, str]] = {}
+        self._ann: dict[str, dict] = {}
 
     def rows(self) -> list[dict]:
         return db.q("SELECT * FROM mcp_servers ORDER BY created")
@@ -352,7 +353,7 @@ class MCPManager:
 
     def tool_specs(self) -> list[dict]:
         """Function specs for every tool of every ready server, with collision-free names."""
-        specs, self._map = [], {}
+        specs, self._map, self._ann = [], {}, {}
         for sid, c in self.clients.items():
             if c.status != "ready":
                 continue
@@ -364,6 +365,8 @@ class MCPManager:
                     name = f"{base[:60]}_{n}"
                     n += 1
                 self._map[name] = (sid, t.get("name"))
+                if isinstance(t.get("annotations"), dict):
+                    self._ann[name] = t["annotations"]
                 schema = t.get("inputSchema") or {"type": "object", "properties": {}}
                 if schema.get("type") != "object":
                     schema = {"type": "object", "properties": {}}
@@ -373,6 +376,11 @@ class MCPManager:
 
     def owns(self, name: str) -> bool:
         return name in self._map
+
+    def needs_approval(self, name: str) -> bool:
+        """Tools the server explicitly marks destructive (MCP `destructiveHint`) wait for the user's OK."""
+        a = self._ann.get(name) or {}
+        return a.get("destructiveHint") is True and a.get("readOnlyHint") is not True
 
     async def call(self, name: str, args: dict) -> str:
         sid, tool = self._map[name]

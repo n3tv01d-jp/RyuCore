@@ -15,7 +15,7 @@ const ago = s => (s == null ? '—' : s < 60 ? 'now' : s < 3600 ? `${Math.round(
 const since = t => (t ? ago(Math.max(0, Math.round(Date.now() / 1000 - t))) : '—');
 const hm = t => { const d = new Date(t * 1000); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
-/* ───────── themes (the nine HEARTH palettes) ───────── */
+/* ───────── themes (the nine HEARTH palettes, plus any a linked HEARTH hub serves) ───────── */
 const THEMES = [
   ['hearth', 'HEARTH', '炉心'], ['redline', 'REDLINE', '赤警報'], ['mecha', 'MECHA', '機甲'], ['sakura', 'SAKURA', '桜'],
   ['eclipse', 'ECLIPSE', '月蝕'], ['kurenai', 'KURENAI', '紅'], ['abyss', 'ABYSS', '深海'], ['aurum', 'AURUM', '黄金'],
@@ -31,34 +31,72 @@ const themeCols = {};
   }
   if (prev) root.dataset.theme = prev; else delete root.dataset.theme;
 })();
-const swatch = id => `<span class="sw">${themeCols[id].map(c => `<i style="background:${c}"></i>`).join('')}</span>`;
-function applyTheme(id) {
+/** Called with the theme id when the user picks one (not when it's synced from the hub). */
+const themeHooks = [];
+let hubPalettes = [];
+try { hubPalettes = JSON.parse(store.get('palettes') || '[]') || []; } catch { /* stale */ }
+const swatch = id => `<span class="sw">${(themeCols[id] || []).map(c => `<i style="background:${esc(c)}"></i>`).join('')}</span>`;
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(', ');
+/** The hub's colours as inline variables (they win over the stylesheet), or none without a hub. */
+function paintPalette(id) {
+  const st = document.documentElement.style, p = hubPalettes.find(x => x.id === id);
+  const plain = ['bg', 'bg2', 'text', 'dim', 'faint'];
+  if (!p) {
+    for (const v of ['a1', 'a2', 'a3']) { st.removeProperty(`--${v}`); st.removeProperty(`--${v}-rgb`); }
+    for (const v of ['s-rgb', 'panel', ...plain]) st.removeProperty(`--${v}`);
+    return;
+  }
+  for (const v of ['a1', 'a2', 'a3']) { st.setProperty(`--${v}`, p[v]); st.setProperty(`--${v}-rgb`, hexRgb(p[v])); }
+  st.setProperty('--s-rgb', hexRgb(p.surface));
+  st.setProperty('--panel', `rgba(${hexRgb(p.panel)}, 0.9)`);
+  for (const v of plain) st.setProperty(`--${v}`, p[v]);
+}
+function renderThemeLists() {
+  const menu = $('#themeMenu'), grid = $('#themeGrid');
+  if (menu) menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}">${swatch(t.id)}${esc(t.name)}<em>${esc(t.jp)}</em></button>`).join('');
+  if (grid) grid.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}">${swatch(t.id)}${esc(t.name)} ${esc(t.jp)}</button>`).join('');
+  const cur = document.documentElement.dataset.theme || 'hearth';
+  $$('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === cur));
+}
+/** Palettes from a linked HEARTH hub: custom ones join the menu, changed colours override the CSS. */
+function setPalettes(list) {
+  hubPalettes = Array.isArray(list) ? list : [];
+  store.set('palettes', JSON.stringify(hubPalettes));
+  for (const p of hubPalettes) {
+    if (!THEMES.some(t => t.id === p.id)) THEMES.push({ id: p.id, name: p.name, jp: p.jp || '' });
+    themeCols[p.id] = [p.a1, p.a2, p.a3];
+  }
+  renderThemeLists();
+}
+function applyTheme(id, user = false) {
   const t = THEMES.find(x => x.id === id) || THEMES[0];
   if (t.id === 'hearth') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t.id;
+  paintPalette(t.id);
   store.set('theme', t.id);
   setText($('#themeName'), t.name);
   $$('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t.id));
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
+  if (user) themeHooks.forEach(f => f(t.id));
 }
 function cycleTheme(dir = 1) {
   const cur = document.documentElement.dataset.theme || 'hearth', i = THEMES.findIndex(t => t.id === cur);
   const t = THEMES[(i + dir + THEMES.length) % THEMES.length];
-  applyTheme(t.id); toast(`THEME // ${t.name} ${t.jp}`);
+  applyTheme(t.id, true); toast(`THEME // ${t.name} ${t.jp}`);
 }
 (function buildThemeMenu() {
+  for (const p of hubPalettes) {
+    if (!THEMES.some(t => t.id === p.id)) THEMES.push({ id: p.id, name: p.name, jp: p.jp || '' });
+    themeCols[p.id] = [p.a1, p.a2, p.a3];
+  }
+  renderThemeLists();
   const menu = $('#themeMenu'), btn = $('#themeBtn');
   if (menu && btn) {
-    menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${t.id}">${swatch(t.id)}${t.name}<em>${t.jp}</em></button>`).join('');
     const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
     btn.addEventListener('click', e => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute('aria-expanded', String(!menu.hidden)); });
-    menu.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyTheme(b.dataset.t); close(); } });
+    menu.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyTheme(b.dataset.t, true); close(); } });
     document.addEventListener('click', close);
   }
-  const grid = $('#themeGrid');
-  if (grid) {
-    grid.innerHTML = THEMES.map(t => `<button type="button" data-t="${t.id}">${swatch(t.id)}${t.name} ${t.jp}</button>`).join('');
-    grid.addEventListener('click', e => { const b = e.target.closest('button'); if (b) applyTheme(b.dataset.t); });
-  }
+  $('#themeGrid')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b) applyTheme(b.dataset.t, true); });
   applyTheme(QS.get('theme') || store.get('theme') || 'hearth');
 })();
 

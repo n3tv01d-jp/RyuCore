@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import agent, brain, bus, config, db, providers, skills, tools
+from . import agent, brain, bus, config, db, hearth, providers, skills, tools
 from .mcp import manager as mcp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -49,6 +49,7 @@ def _authed(req: Request) -> bool:
 async def lifespan(_app):
     providers.seed_from_env()
     skills.seed()
+    hearth.seed_mcp()
     asyncio.create_task(mcp.start_all())
     log.info("RyuCore %s up — data in %s, login %s, shell %s", config.VERSION, config.DATA,
              "on" if config.PASSWORD else "OFF", "on" if config.ALLOW_SHELL else "off")
@@ -102,7 +103,40 @@ async def healthz():
 @app.get("/api/info")
 async def info():
     return {"version": config.VERSION, "auth": bool(config.PASSWORD), "shell": config.ALLOW_SHELL,
-            "searxng": bool(config.SEARXNG_URL), "data": str(config.DATA), "workspace": str(config.WORKSPACE)}
+            "searxng": bool(config.SEARXNG_URL), "data": str(config.DATA), "workspace": str(config.WORKSPACE),
+            "hearth": config.HEARTH_URL or None}
+
+
+# ───────────── HEARTH link 炉心 ─────────────
+@app.get("/api/hearth/theme")
+async def hearth_theme(fresh: int = 0):
+    data = await hearth.theme(bool(fresh))
+    if data is None:
+        raise HTTPException(404 if not hearth.enabled() else 502,
+                            "no HEARTH hub linked (RYU_HEARTH_URL)" if not hearth.enabled() else "HEARTH hub unreachable")
+    return data
+
+
+@app.post("/api/hearth/theme")
+async def hearth_theme_set(req: Request):
+    if not hearth.enabled():
+        raise HTTPException(404, "no HEARTH hub linked (RYU_HEARTH_URL)")
+    b = await req.json()
+    try:
+        return await hearth.set_theme(str(b.get("theme") or "")[:32])
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"HEARTH hub unreachable: {e}") from None
+
+
+# ───────────── tool approvals ─────────────
+@app.post("/api/approve/{cid}/{call_id}")
+async def approve_tool(cid: str, call_id: str, req: Request):
+    b = await req.json()
+    if not agent.approve(cid, call_id, bool(b.get("ok"))):
+        raise HTTPException(404, "nothing is waiting for that approval (it may have timed out)")
+    return {"ok": True}
 
 
 @app.get("/api/events")

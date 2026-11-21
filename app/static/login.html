@@ -41,7 +41,7 @@
 <script>
 $('#f').addEventListener('submit', async e => {
   e.preventDefault(); setText($('#err'), '');
-  try { await POST('api/login', { password: $('#pw').value }); location.href = './'; }
+  try { await POST('api/login', { password: $('#pw').value }); location.href = './' + location.hash; }
   catch (err) { setText($('#err'), 'ACCESS DENIED // ' + err.message); $('#pw').select(); }
 });
 </script>

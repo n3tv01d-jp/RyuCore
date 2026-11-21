@@ -391,6 +391,15 @@ $('#msgs').addEventListener('click', e => {
   if (cp) { copyText(cp.closest('.code').querySelector('code').textContent); return; }
   const img = e.target.closest('.m-imgs img');
   if (img) { const lb = html(`<div class="lightbox"><img alt=""></div>`); lb.querySelector('img').src = img.src; lb.onclick = () => lb.remove(); document.body.append(lb); return; }
+  const ap = e.target.closest('[data-approve]');
+  if (ap) {
+    const ok = ap.dataset.approve === '1', chatId = S.chat?.id;
+    ap.parentElement.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    POST(`api/approve/${chatId}/${encodeURIComponent(ap.dataset.call)}`, { ok })
+      .then(() => toast(ok ? 'APPROVED // 承認' : 'DENIED // 却下', ok ? 'ok' : 'warn'))
+      .catch(err => { toast(err.message, 'crit'); ap.parentElement.querySelectorAll('button').forEach(b => { b.disabled = false; }); });
+    return;
+  }
   const a = e.target.closest('[data-mact]'); if (!a) return;
   const art = a.closest('.msg'), act = a.dataset.mact;
   if (act === 'copy') copyText(art._copy || '');
@@ -450,12 +459,18 @@ function renderAI(rows, { live = false, isLast = false } = {}) {
     else if (streamingHere && !reasoning && !(meta.tool_calls || []).length && !meta.council) h += '<div class="md empty"></div>';
     for (const tc of meta.tool_calls || []) {
       const res = results.get(tc.id);
-      const st = res ? (/^ERROR/.test(res.content) ? 'bad' : 'ok') : (live ? 'run' : 'bad');
-      const stl = res ? (st === 'bad' ? 'ERROR' : 'DONE') : (live ? 'RUNNING' : 'NO RESULT');
+      const appr = res?.meta?.approval || (live ? S.live?.approvals?.[tc.id] : null);
+      const waiting = appr === 'pending' && !res;
+      let st = res ? (/^(ERROR|DENIED)/.test(res.content) ? 'bad' : 'ok') : (live ? 'run' : 'bad');
+      let stl = res ? (st === 'bad' ? (appr === 'denied' ? 'DENIED' : 'ERROR') : 'DONE') : (live ? 'RUNNING' : 'NO RESULT');
+      if (waiting) { st = 'ask'; stl = 'AWAITING APPROVAL'; }
+      else if (appr === 'approved') stl += ' · APPROVED';
       const argStr = JSON.stringify(tc.arguments ?? {}, null, 1);
       const isMcp = tc.name.includes('__');
       h += fold(`tool:${tc.id}`, `tool ${st}`, `${isMcp ? '⧉' : '⚙'} <b>${esc(tc.name)}</b><code>${esc(argStr.replace(/\s+/g, ' ').slice(0, 140))}</code><span class="tst">${stl}</span>`,
-        `<label>INPUT</label><pre>${esc(argStr)}</pre>${res ? `<label>OUTPUT · ${res.content.length} chars</label><pre>${esc(res.content)}</pre>` : ''}`);
+        `<label>INPUT</label><pre>${esc(argStr)}</pre>${res ? `<label>OUTPUT · ${res.content.length} chars</label><pre>${esc(res.content)}</pre>` : ''}`, waiting);
+      if (waiting) h += `<div class="t-appr" role="group" aria-label="Approve tool call"><span><b>APPROVAL // 承認</b> This tool can change things on the server. Run it with the input above?</span>
+        <button type="button" class="tgl" data-approve="0" data-call="${esc(tc.id)}">✕ DENY</button><button type="button" class="tgl on" data-approve="1" data-call="${esc(tc.id)}">✓ APPROVE</button></div>`;
     }
     if (meta.error && meta.error !== 'interrupted') h += `<div class="m-err"><b>FAULT // 障害</b>${esc(meta.error)}</div>`;
     else if (meta.error === 'interrupted') h += '<div class="m-note">■ stopped</div>';
@@ -522,7 +537,10 @@ function onEvent(ev) {
     case 'text': if (cur()) cur().content += ev.text; break;
     case 'reasoning': if (cur()) cur().meta.reasoning += ev.text; break;
     case 'tool_call': cur()?.meta.tool_calls.push({ id: ev.id, name: ev.name, arguments: ev.arguments }); break;
-    case 'tool_result': L.rows.push({ role: 'tool', content: ev.content, meta: { tool_call_id: ev.id, name: ev.name } }); break;
+    case 'tool_result': L.rows.push({ role: 'tool', content: ev.content, meta: { tool_call_id: ev.id, name: ev.name, approval: ev.approval } }); break;
+    case 'approval': (L.approvals ||= {})[ev.id] = 'pending'; toast('APPROVAL // a tool is waiting for your OK', 'warn'); break;
+    case 'approval_done': (L.approvals ||= {})[ev.id] = ev.ok ? 'approved' : 'denied'; break;
+    case 'ping': return;
     case 'notice': L.notices.push(ev.text); break;
     case 'error': L.error = ev.error; break;
     case 'council_start':
@@ -1121,7 +1139,36 @@ document.addEventListener('keydown', e => {
   else if (k === 't') { e.preventDefault(); cycleTheme(e.shiftKey ? -1 : 1); }
   else if (/^[1-6]$/.test(k)) { e.preventDefault(); showView(VIEWS[+k - 1]); }
 });
-addEventListener('hashchange', () => showView(location.hash.slice(1) || 'chat'));
+addEventListener('hashchange', () => { if (!takeAsk()) showView(location.hash.slice(1) || 'chat'); });
+
+/* ═════════════ hand-off from HEARTH: #ask=<prompt> opens a new agent session with the prompt ready ═════════════ */
+function takeAsk() {
+  if (!location.hash.startsWith('#ask=')) return false;
+  let text = '';
+  try { text = decodeURIComponent(location.hash.slice(5)); } catch { /* malformed */ }
+  history.replaceState(null, '', location.pathname + location.search);
+  showView('chat');
+  newDraft({ reset: true });
+  S.chat.agent = true;
+  renderChatBar();
+  input.value = text.slice(0, 20000); autosize(); input.focus();
+  toast('HEARTH // prompt ready: check it, pick a model, then TRANSMIT', 'ok');
+  return true;
+}
+
+/* ═════════════ HEARTH fleet theme: follow the hub, and tell it when you pick one here ═════════════ */
+const HEARTH = {
+  rev: null,
+  async sync(fresh = false) {
+    if (!S.info?.hearth) return;
+    let j; try { j = await GET('api/hearth/theme' + (fresh ? '?fresh=1' : '')); } catch { return; }
+    if (j.rev === HEARTH.rev) return;
+    HEARTH.rev = j.rev;
+    setPalettes(j.palettes || []);
+    if (!QS.get('theme')) applyTheme(j.theme);
+  },
+};
+themeHooks.push(id => { if (S.info?.hearth) POST('api/hearth/theme', { theme: id }).then(r => { HEARTH.rev = r.rev; }).catch(e => toast('HEARTH // ' + e.message, 'warn')); });
 
 /* ═════════════ boot ═════════════ */
 (async function boot() {
@@ -1144,6 +1191,11 @@ addEventListener('hashchange', () => showView(location.hash.slice(1) || 'chat'))
   const last = store.get('chat');
   if (last && S.chats.some(c => c.id === last)) await openChat(last); else newDraft({ reset: true });
   connectEvents();
-  showView(location.hash.slice(1) || 'chat');
+  if (!takeAsk()) showView(location.hash.slice(1) || 'chat');
   ready();
+  if (S.info.hearth) {
+    HEARTH.sync();
+    setInterval(() => { if (!document.hidden) HEARTH.sync(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) HEARTH.sync(); });
+  }
 })();

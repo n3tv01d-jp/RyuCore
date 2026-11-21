@@ -1,13 +1,16 @@
 # RyuCore 竜核 — AI command core.
 #   cp .env.example .env            # optional: API keys, password
-#   docker compose up -d --build    → http://<this-host>:8090
+#   docker compose pull && docker compose up -d   → http://<this-host>:8090  (published image)
+#   docker compose up -d --build                  → build from this checkout instead
 #
-# Bundled Ollama (optional):  docker compose --profile ollama up -d --build
+# HEARTH's ARSENAL can update the published image (⬆ UPDATE); a local --build shows as LOCAL BUILD.
+#
+# Bundled Ollama (optional):  docker compose --profile ollama up -d
 #   then set RYU_OLLAMA_URL=http://ollama:11434/v1 in .env (or edit the provider in MODELS).
 services:
   ryucore:
     build: .
-    image: ryucore:latest
+    image: "${RYU_IMAGE:-ghcr.io/n3tv01d-jp/ryucore:latest}"
     container_name: ryucore
     restart: unless-stopped
     ports:

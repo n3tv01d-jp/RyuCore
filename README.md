@@ -41,15 +41,18 @@ Everything runs in one container: a FastAPI core, a dependency-free web UI and S
 
 ```bash
 cp .env.example .env            # optional: API keys, RYU_PASSWORD
-docker compose up -d --build    # → http://<host>:8090
+docker compose pull             # the published image (ghcr.io/n3tv01d-jp/ryucore)
+docker compose up -d            # → http://<host>:8090
 ```
+
+Use `docker compose up -d --build` to build from your checkout instead.
 
 On first boot an **Ollama** provider pointing at `http://host.docker.internal:11434/v1` is created for you. Any cloud key in `.env` adds that provider automatically.
 
 **To bundle Ollama** in the same compose project instead of using one on the host:
 
 ```bash
-docker compose --profile ollama up -d --build
+docker compose --profile ollama up -d
 # then in .env:  RYU_OLLAMA_URL=http://ollama:11434/v1   (or edit the provider in MODELS)
 docker exec -it ryucore-ollama ollama pull qwen3:8b
 ```
@@ -66,6 +69,19 @@ The container reaches the Docker host as `host.docker.internal`. The server must
 | LM Studio | Developer → *Serve on local network* | `http://host.docker.internal:1234/v1` |
 
 `--jinja` lets llama.cpp use tool calling in agent mode. On Fedora and RHEL, firewalld may block container-to-host traffic: `sudo firewall-cmd --zone=docker --add-port=11434/tcp --permanent && sudo firewall-cmd --reload` (adjust the port).
+
+## Updating
+
+Every push to `main` makes GitHub Actions build the image and publish it as `ghcr.io/n3tv01d-jp/ryucore:latest` (`.github/workflows/image.yml`). Tags like `v1.1.0` also publish `:1.1.0` and `:1.1`.
+
+**From HEARTH:** on a machine that runs RyuCore, ARSENAL → **01 UPDATES 更新** checks the registry and lists `ryucore` as **update available** when there's a new build. **⬆ UPDATE** pulls it and recreates the container with the same settings: the `ryucore-data` volume, env, ports and labels. If anything fails, the old container is put back. That machine's HEARTH needs `HEARTH_ALLOW_CONTROL=1`.
+
+- An open RyuCore page reconnects by itself. A reply that's streaming during the update is cut off.
+- `RYU_IMAGE` picks the image, e.g. `ghcr.io/n3tv01d-jp/ryucore:1.1` to get only 1.1.x builds.
+- A container built with `--build` shows **LOCAL BUILD** in ARSENAL and isn't updated. Run `docker compose pull && docker compose up -d` once to switch to the published image.
+- By hand it's `docker compose pull && docker compose up -d`.
+
+The first time the workflow runs, set the package's visibility to **Public** on GitHub (your profile → *Packages* → *ryucore* → *Package settings*). Otherwise ARSENAL can't check it and machines can't pull it without logging in.
 
 ## Modes
 
@@ -132,9 +148,21 @@ Add servers in the MCP view, or paste the usual config:
 
 stdio servers run inside the container, which includes Node.js (`npx`) and uv (`uvx`), with `/data/workspace` as their working directory. A URL ending in `/sse` (or `"type": "sse"`) uses the legacy transport; any other URL uses Streamable HTTP. Env and header values are masked in the UI after saving.
 
+### Tool approvals 承認
+
+When an MCP server marks a tool as destructive (MCP's `destructiveHint`, and not `readOnlyHint`), the agent stops before calling it. The tool card shows **AWAITING APPROVAL** with the arguments and DENY / APPROVE buttons. The run waits up to 10 minutes; denying, stopping the run or the timeout all count as a denial, and the model is told it wasn't allowed. Your decision is saved with the tool call in the session.
+
+### HEARTH 炉心
+
+Set `RYU_HEARTH_URL` (and `RYU_HEARTH_TOKEN` if the hub has `HEARTH_MCP_TOKEN`) and RyuCore adds the hub as the `hearth` MCP server at start-up, so agents can query your fleet: status, metrics, events, reports, insights, maintenance and the journal. If the hub runs `HEARTH_MCP=control`, container and stack actions are available too, and each one needs your approval.
+
+HEARTH's **竜 ASK** buttons open RyuCore at `#ask=<prompt>`: a new agent session with the prompt in the composer, ready for you to read and send. This works through the login page as well.
+
 ## Themes
 
 The nine HEARTH palettes are all here: **HEARTH** 炉心, **REDLINE** 赤警報, **MECHA** 機甲, **SAKURA** 桜, **ECLIPSE** 月蝕, **KURENAI** 紅, **ABYSS** 深海, **AURUM** 黄金 and **SPECTER** 幽霊. Pick one from the swatch button, from SYSTEM, or with `Alt T`. `?theme=sakura` and `?boot=0` work as URL options.
+
+With `RYU_HEARTH_URL` set, RyuCore follows the hub's fleet theme and shows its extra palettes, and the theme you pick here becomes the fleet theme.
 
 ## Keyboard
 
@@ -152,6 +180,7 @@ The nine HEARTH palettes are all here: **HEARTH** 炉心, **REDLINE** 赤警報,
 | Var | Default | |
 |---|---|---|
 | `RYU_PUBLISH` | `8090` | Host port (compose) |
+| `RYU_IMAGE` | `ghcr.io/n3tv01d-jp/ryucore:latest` | Image to run and update (compose) |
 | `RYU_PASSWORD` | — | Require a login. **Set this** if anyone else can reach the port. |
 | `RYU_SECRET` | random | Cookie signing secret. If empty, one is generated and stored in the volume. |
 | `RYU_ALLOW_SHELL` | `0` | `1` gives agents `run_shell` / `run_python` inside the container |
@@ -159,6 +188,8 @@ The nine HEARTH palettes are all here: **HEARTH** 炉心, **REDLINE** 赤警報,
 | `RYU_MAX_STEPS` | `12` | Default agent tool-loop limit |
 | `RYU_OLLAMA_URL` / `RYU_VLLM_URL` / `RYU_LLAMACPP_URL` / `RYU_LMSTUDIO_URL` | Ollama on the host | Seeds local providers on boot |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `DEEPSEEK_API_KEY` | — | Seeds the matching cloud provider. Keys are read from the environment at request time and never written to the database. |
+| `RYU_HEARTH_URL` | — | A HEARTH hub, e.g. `http://192.168.1.10:8088`: adds it as an MCP server and follows its theme |
+| `RYU_HEARTH_TOKEN` | — | The hub's `HEARTH_MCP_TOKEN`, if it has one |
 | `TZ` | `UTC` | Used by `current_datetime` |
 
 A provider seeded from the environment is created only once, so edits you make in the UI stick. Keys you paste into the UI instead are stored in SQLite inside the data volume.
@@ -182,9 +213,9 @@ The brain can also be exported and imported as JSON from BRAIN → CORTEX.
 
 ## API
 
-`GET /api/info` · `/api/events` (SSE) · `/api/settings` · `/api/models?refresh=1` · `/api/providers` · `/api/presets` · `/api/chats?q=` · `/api/chats/{id}` · `/api/chats/{id}/export?fmt=md|json` · `/api/brain?q=&kind=` · `/api/brain/export` · `/api/skills` · `/api/skills/{slug}` · `/api/tools` · `/api/mcp` · `/api/mcp/{id}/log` · `/healthz`
+`GET /api/info` · `/api/events` (SSE) · `/api/settings` · `/api/models?refresh=1` · `/api/providers` · `/api/presets` · `/api/chats?q=` · `/api/chats/{id}` · `/api/chats/{id}/export?fmt=md|json` · `/api/brain?q=&kind=` · `/api/brain/export` · `/api/skills` · `/api/skills/{slug}` · `/api/tools` · `/api/mcp` · `/api/mcp/{id}/log` · `/api/hearth/theme` · `/healthz`
 
-POST/PUT/PATCH/DELETE (need `X-Ryu: 1`): `POST /api/chats` · `PATCH|DELETE /api/chats/{id}` · `POST /api/chats/{id}/send {content, images[], skills[]} | {mode: "regenerate"}` (streams SSE) · `PUT /api/messages/{id}` · `PUT /api/settings` · `POST /api/providers` · `POST /api/providers/{id}/test` · `DELETE /api/providers/{id}` · `POST|PATCH|DELETE /api/brain[/{id}]` · `POST /api/brain/recall|reembed|wipe|import` · `PUT|DELETE /api/skills/{slug}` · `POST /api/skills/{slug}/enabled` · `POST /api/skills-import` · `POST /api/mcp` · `POST /api/mcp/import` · `POST /api/mcp/{id}/restart` · `DELETE /api/mcp/{id}` · `POST /api/login|logout`
+POST/PUT/PATCH/DELETE (need `X-Ryu: 1`): `POST /api/chats` · `PATCH|DELETE /api/chats/{id}` · `POST /api/chats/{id}/send {content, images[], skills[]} | {mode: "regenerate"}` (streams SSE) · `PUT /api/messages/{id}` · `PUT /api/settings` · `POST /api/providers` · `POST /api/providers/{id}/test` · `DELETE /api/providers/{id}` · `POST|PATCH|DELETE /api/brain[/{id}]` · `POST /api/brain/recall|reembed|wipe|import` · `PUT|DELETE /api/skills/{slug}` · `POST /api/skills/{slug}/enabled` · `POST /api/skills-import` · `POST /api/mcp` · `POST /api/mcp/import` · `POST /api/mcp/{id}/restart` · `DELETE /api/mcp/{id}` · `POST /api/approve/{chat_id}/{call_id} {ok}` · `POST /api/hearth/theme {theme}` · `POST /api/login|logout`
 
 ## Layout
 

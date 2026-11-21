@@ -35,6 +35,19 @@ def _bg(coro):
 
 _bg.tasks = set()
 
+# "chat_id:tool_call_id" -> future resolved by POST /api/approve (True = run it)
+APPROVALS: dict[str, asyncio.Future] = {}
+APPROVAL_WAIT = 600
+DENIED = "DENIED: the user did not approve this action. Don't retry it; ask the user how to proceed instead."
+
+
+def approve(chat_id: str, call_id: str, ok: bool) -> bool:
+    fut = APPROVALS.get(f"{chat_id}:{call_id}")
+    if fut is None or fut.done():
+        return False
+    fut.set_result(bool(ok))
+    return True
+
 
 def brain_on(chat: dict) -> bool:
     return bool(chat.get("brain"))
@@ -218,10 +231,33 @@ async def run(chat: dict, skill_names: list[str]):
             break
         for c in calls:
             yield {"type": "tool_start", "id": c["id"], "name": c["name"], "arguments": c["arguments"]}
-            res = await tools.execute(c["name"], c["arguments"], ctx)
-            db.add_message(chat["id"], "tool", res, {"tool_call_id": c["id"], "name": c["name"]})
+            meta = {"tool_call_id": c["id"], "name": c["name"]}
+            if tools.needs_approval(c["name"]):
+                # destructive MCP tool: hold the turn until the user approves or denies it in the UI
+                key = f"{chat['id']}:{c['id']}"
+                fut = asyncio.get_running_loop().create_future()
+                APPROVALS[key] = fut
+                yield {"type": "approval", "id": c["id"], "name": c["name"], "arguments": c["arguments"]}
+                ok, waited = False, 0
+                try:
+                    while not fut.done() and waited < APPROVAL_WAIT:
+                        try:
+                            ok = await asyncio.wait_for(asyncio.shield(fut), 15)
+                        except asyncio.TimeoutError:
+                            waited += 15
+                            yield {"type": "ping"}  # keeps proxies from closing the idle stream
+                    ok = bool(fut.done() and fut.result())
+                finally:
+                    APPROVALS.pop(key, None)
+                meta["approval"] = "approved" if ok else "denied"
+                yield {"type": "approval_done", "id": c["id"], "ok": ok}
+                res = await tools.execute(c["name"], c["arguments"], ctx) if ok else DENIED
+            else:
+                res = await tools.execute(c["name"], c["arguments"], ctx)
+            db.add_message(chat["id"], "tool", res, meta)
             msgs.append({"role": "tool", "tool_call_id": c["id"], "content": res})
-            yield {"type": "tool_result", "id": c["id"], "name": c["name"], "content": res[:20000]}
+            yield {"type": "tool_result", "id": c["id"], "name": c["name"], "content": res[:20000],
+                   **({"approval": meta["approval"]} if "approval" in meta else {})}
             for ch in ctx.pop("learned", []):
                 bus.publish({"type": "brain_learned", "chat_id": chat["id"], "changes": [ch]})
     else:
