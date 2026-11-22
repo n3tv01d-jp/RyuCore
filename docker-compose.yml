@@ -25,6 +25,9 @@ services:
       RYU_ALLOW_SHELL: "${RYU_ALLOW_SHELL:-0}"    # 1 = agents may run shell / python inside this container
       RYU_SEARXNG_URL: "${RYU_SEARXNG_URL:-}"     # web_search via your SearXNG (JSON format enabled)
       RYU_MAX_STEPS: "${RYU_MAX_STEPS:-12}"       # agent tool-loop limit per turn
+      # HEARTH hub link: fleet tools over MCP + the fleet-wide theme (palettes sync both ways)
+      RYU_HEARTH_URL: "${RYU_HEARTH_URL:-}"       # e.g. http://192.168.1.10:8088
+      RYU_HEARTH_TOKEN: "${RYU_HEARTH_TOKEN:-}"   # the hub's HEARTH_MCP_TOKEN, if it has one
       # local model servers (seeded into MODELS on boot; editable in the UI)
       RYU_OLLAMA_URL: "${RYU_OLLAMA_URL:-http://host.docker.internal:11434/v1}"
       RYU_VLLM_URL: "${RYU_VLLM_URL:-}"

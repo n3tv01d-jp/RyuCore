@@ -1195,7 +1195,7 @@ themeHooks.push(id => { if (S.info?.hearth) POST('api/hearth/theme', { theme: id
   ready();
   if (S.info.hearth) {
     HEARTH.sync();
-    setInterval(() => { if (!document.hidden) HEARTH.sync(); }, 60000);
+    setInterval(() => { if (!document.hidden) HEARTH.sync(); }, 15000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) HEARTH.sync(); });
   }
 })();
