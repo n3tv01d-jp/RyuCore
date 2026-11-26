@@ -15,6 +15,7 @@ stream_chat() yields events: {"type": "text"|"reasoning", "text"} · {"type": "t
 · {"type": "usage", ...}
 """
 import asyncio
+import contextlib
 import json
 import os
 import time
@@ -367,12 +368,71 @@ async def _an_stream(p, name, msgs, tools, temperature):
 
 
 # ───────────── public API ─────────────
+class ReasoningLimit(ProviderError):
+    """The model's reasoning hit the cap or got stuck in a loop before it produced an answer."""
+
+
+def _repeating_tail(t: str, min_span: int = 1200, min_reps: int = 3, max_period: int = 3000) -> tuple[int, int]:
+    """(period, repeats) when the end of `t` is one passage repeated back to back, else (0, 0)."""
+    n = len(t)
+    for p in range(1, min(max_period, n // min_reps) + 1):
+        k = min(p, 32)
+        if t[n - k:] != t[n - p - k:n - p]:  # cheap pre-check before comparing whole chunks
+            continue
+        last, reps = t[n - p:], 1
+        while (reps + 1) * p <= n and t[n - (reps + 1) * p:n - reps * p] == last:
+            reps += 1
+        if reps >= min_reps and reps * p >= min_span:
+            return p, reps
+    return 0, 0
+
+
+class ReasoningGuard:
+    """Watches a reply's reasoning (reasoning events and inline <think> text) and stops a runaway one."""
+    CHECK_EVERY = 400   # chars of new reasoning between loop checks
+    TAIL = 12000        # chars of reasoning kept for loop detection
+
+    def __init__(self, cap: int, loop: bool):
+        self.cap, self.loop = max(0, cap), loop
+        self.n, self.tail, self.unchecked, self.content = 0, "", 0, ""
+
+    def feed(self, ev: dict) -> None:
+        if ev["type"] == "reasoning":
+            self._add(ev["text"])
+        elif ev["type"] == "text":
+            self.content += ev["text"]
+            if self.content.rfind("<think>") > self.content.rfind("</think>"):
+                self._add(ev["text"])
+            elif len(self.content) > 64 and "<think>" not in self.content:
+                self.content = self.content[-64:]  # no inline reasoning: just keep enough to spot a tag
+
+    def _add(self, s: str) -> None:
+        self.n += len(s)
+        if self.cap and self.n > self.cap:
+            raise ReasoningLimit(f"Reasoning stopped after {self.n:,} characters with no answer (the cap is "
+                                 f"{self.cap:,}; change it in SYSTEM → REASONING CAP).")
+        if not self.loop:
+            return
+        self.tail = (self.tail + s)[-self.TAIL:]
+        self.unchecked += len(s)
+        if self.unchecked >= self.CHECK_EVERY:
+            self.unchecked = 0
+            period, reps = _repeating_tail(self.tail)
+            if period:
+                raise ReasoningLimit(f"Reasoning stopped: the model was looping, repeating the same "
+                                     f"{period:,}-character passage {reps}× ({self.n:,} characters of reasoning). "
+                                     f"Try a higher temperature or a presence penalty on the server.")
+
+
 async def stream_chat(model_id: str, msgs: list[dict], tools: list[dict] | None = None, temperature=None):
     p, name = split_model(model_id)
     gen = _an_stream if p["kind"] == "anthropic" else _oa_stream
+    guard = ReasoningGuard(int(db.setting("reasoning_max_chars") or 0), bool(db.setting("reasoning_loop_detect")))
     try:
-        async for ev in gen(p, name, msgs, tools, temperature):
-            yield ev
+        async with contextlib.aclosing(gen(p, name, msgs, tools, temperature)) as events:
+            async for ev in events:
+                yield ev
+                guard.feed(ev)
     except httpx.ConnectError as e:
         raise ProviderError(f"Cannot reach {p['name']} at {p['base_url']} ({e}). Is the server running?") from e
     except httpx.TimeoutException as e:

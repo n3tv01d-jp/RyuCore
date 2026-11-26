@@ -35,7 +35,7 @@ Everything runs in one container: a FastAPI core, a dependency-free web UI and S
 | **SKILLS** 技能 | `SKILL.md` instruction packs (Anthropic skill format). Agents load them on demand, and you can attach one to any message with `/`. |
 | **MCP** 接続 | Model Context Protocol servers over stdio, Streamable HTTP or legacy SSE, with live status, tool lists, logs and Claude-Desktop-style JSON import. Built-in tools can be switched on and off here too. |
 | **MODELS** 演算 | Providers: presets, API keys, connection tests, model discovery and the default model. |
-| **SYSTEM** 設定 | Global system prompt, agent step limit, history limit, auto titles, the nine HEARTH themes, the boot intro and core status. |
+| **SYSTEM** 設定 | Global system prompt, agent step limit, history limit, auto titles, reasoning cap and loop guard, the nine HEARTH themes, the boot intro and core status. |
 
 ## Quick start
 

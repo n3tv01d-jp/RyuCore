@@ -40,6 +40,8 @@ DEFAULTS = {
     "max_steps": config.MAX_STEPS,
     "history_limit": 80,
     "anthropic_max_tokens": 8192,
+    "reasoning_max_chars": 60000,   # stop a reply whose reasoning grows past this with no answer; 0 = no cap
+    "reasoning_loop_detect": True,  # stop a reply whose reasoning repeats the same passage over and over
 }
 
 _lock = threading.RLock()

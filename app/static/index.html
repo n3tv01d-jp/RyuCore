@@ -197,6 +197,10 @@
         <label>ANTHROPIC MAX TOKENS<input type="number" id="sAnth" min="256" max="128000"></label>
         <label>AUTO TITLES<select id="sTitle"><option value="1">ON — the model names sessions</option><option value="0">OFF</option></select></label>
       </div>
+      <div class="two">
+        <label>REASONING CAP (CHARS, 0 = OFF)<input type="number" id="sRCap" min="0" max="2000000" step="1000"></label>
+        <label>REASONING LOOP GUARD<select id="sRLoop"><option value="1">ON — stop a reply that repeats itself</option><option value="0">OFF</option></select></label>
+      </div>
       <div class="row"><span class="sp"></span><button class="tgl on" type="submit">SAVE DIRECTIVES</button></div>
     </form>
   </section>

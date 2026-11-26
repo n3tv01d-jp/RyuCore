@@ -503,8 +503,15 @@ function paintLive() {
     liveRaf = 0;
     const old = $('#liveTurn'); if (!old || !S.live) return;
     const box = $('#msgs'), stick = nearBottom(box);
+    // the live turn is rebuilt every frame, so scrollable folds (reasoning, council seats) would snap back to
+    // the top and look frozen; keep each one's position and follow new text while it is scrolled to the bottom
+    const folds = new Map([...old.querySelectorAll('details[data-fold] > .in')].map(d => [d.parentElement.dataset.fold, { top: d.scrollTop, follow: nearBottom(d) }]));
     const el = renderAI(S.live.rows, { live: true }); el.id = 'liveTurn'; el.style.animation = 'none';
     old.replaceWith(el);
+    for (const d of el.querySelectorAll('details[data-fold] > .in')) {
+      const f = folds.get(d.parentElement.dataset.fold);
+      d.scrollTop = !f || f.follow ? d.scrollHeight : f.top;
+    }
     if (stick) box.scrollTop = box.scrollHeight;
   });
 }
@@ -1060,6 +1067,7 @@ function renderSystem() {
   const s = S.settings, i = S.info;
   $('#sGlobal').value = s.system_prompt || ''; $('#sSteps').value = s.max_steps; $('#sHist').value = s.history_limit;
   $('#sAnth').value = s.anthropic_max_tokens; $('#sTitle').value = s.auto_title ? '1' : '0';
+  $('#sRCap').value = s.reasoning_max_chars; $('#sRLoop').value = s.reasoning_loop_detect ? '1' : '0';
   const boot = store.get('boot') !== '0'; $('#bootTgl').classList.toggle('on', boot); $('#bootTgl').textContent = boot ? 'ON' : 'OFF';
   $('#sysInfo').innerHTML = `<dt>VERSION</dt><dd>${esc(i.version)}</dd><dt>LOGIN</dt><dd class="${i.auth ? '' : 'warn'}">${i.auth ? 'password' : 'OFF — open to anyone who can reach it'}</dd>
     <dt>SHELL TOOLS</dt><dd class="${i.shell ? 'warn' : ''}">${i.shell ? 'ENABLED' : 'locked'}</dd><dt>WEB SEARCH</dt><dd>${i.searxng ? 'SearXNG' : 'DuckDuckGo'}</dd>
@@ -1070,7 +1078,8 @@ function renderSystem() {
 $('#sysForm').addEventListener('submit', e => {
   e.preventDefault();
   saveSettings({ system_prompt: $('#sGlobal').value, max_steps: Math.max(1, +$('#sSteps').value || 12), history_limit: Math.max(4, +$('#sHist').value || 80),
-    anthropic_max_tokens: Math.max(256, +$('#sAnth').value || 8192), auto_title: $('#sTitle').value === '1' });
+    anthropic_max_tokens: Math.max(256, +$('#sAnth').value || 8192), auto_title: $('#sTitle').value === '1',
+    reasoning_max_chars: Math.max(0, Math.round(+$('#sRCap').value || 0)), reasoning_loop_detect: $('#sRLoop').value === '1' });
 });
 $('#bootTgl').addEventListener('click', () => { store.set('boot', store.get('boot') === '0' ? '1' : '0'); renderSystem(); });
 $('#logoutBtn').addEventListener('click', async () => { await POST('api/logout'); location.href = 'login.html'; });
