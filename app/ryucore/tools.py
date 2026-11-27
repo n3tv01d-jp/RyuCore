@@ -13,7 +13,7 @@ from urllib.parse import unquote
 
 import httpx
 
-from . import brain, config, db, skills
+from . import brain, config, db, guard, skills
 from .mcp import manager as mcp
 
 MAX_OUT = 16000
@@ -26,15 +26,30 @@ def _clip(s: str, n: int = MAX_OUT) -> str:
 
 # ── web ──
 class _Text(HTMLParser):
-    SKIP = {"script", "style", "noscript", "svg", "head", "nav", "footer", "form"}
+    SKIP = {"script", "style", "noscript", "svg", "head", "nav", "footer", "form", "template", "iframe", "object"}
+    VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+    # inline styles that hide text from a human reader but not from a scraper (a classic injection hiding spot)
+    HIDDEN_CSS = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?![.\d]*[1-9])|"
+                            r"opacity\s*:\s*0(?![.\d]*[1-9])|(?:left|top|text-indent)\s*:\s*-\d{3,}|clip\s*:\s*rect\(0", re.I)
 
     def __init__(self):
         super().__init__()
         self.out, self._skip, self.title = [], 0, ""
         self._in_title = False
+        self._hidden: list[str] = []  # open tags that are hidden; text inside them is dropped
+        self.hidden_dropped = 0
+
+    def _is_hidden(self, attrs) -> bool:
+        a = {k.lower(): (v or "") for k, v in attrs}
+        if "hidden" in a or a.get("aria-hidden", "").lower() == "true":
+            return True
+        return bool(self.HIDDEN_CSS.search(a.get("style", "")))
 
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
+            self._skip += 1
+        elif tag not in self.VOID and self._is_hidden(attrs):
+            self._hidden.append(tag)
             self._skip += 1
         if tag == "title":
             self._in_title = True
@@ -44,6 +59,9 @@ class _Text(HTMLParser):
     def handle_endtag(self, tag):
         if tag in self.SKIP and self._skip:
             self._skip -= 1
+        elif self._hidden and self._hidden[-1] == tag:
+            self._hidden.pop()
+            self._skip = max(0, self._skip - 1)
         if tag == "title":
             self._in_title = False
 
@@ -52,6 +70,8 @@ class _Text(HTMLParser):
             self.title += data
         elif not self._skip:
             self.out.append(data)
+        elif self._hidden and data.strip():
+            self.hidden_dropped += len(data)
 
 
 def html_to_text(s: str) -> tuple[str, str]:
@@ -65,18 +85,54 @@ def html_to_text(s: str) -> tuple[str, str]:
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) RyuCore/1.0"}
 
 
+async def fetch_page(url: str, limit: int = 3_000_000) -> dict:
+    """GET a URL and return {status, url, title, text, hidden}: readable text, with hidden elements dropped."""
+    async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers=UA) as c:
+        r = await c.get(url)
+    ctype = r.headers.get("content-type", "")
+    body = r.content[:limit].decode(r.encoding or "utf-8", "replace")
+    title, hidden = "", 0
+    if "html" in ctype or body.lstrip()[:15].lower().startswith(("<!doctype", "<html")):
+        p = _Text()
+        p.feed(body)
+        title, hidden = p.title.strip(), p.hidden_dropped
+        body = re.sub(r"[ \t\r\f\v]+", " ", "".join(p.out))
+        body = re.sub(r"\n\s*\n+", "\n\n", body).strip()
+    return {"status": r.status_code, "url": str(r.url), "title": title, "text": body, "hidden": hidden}
+
+
 async def fetch_url(args, ctx):
     url = str(args.get("url", "")).strip()
     if not re.match(r"^https?://", url):
         return "ERROR: url must start with http:// or https://"
-    async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers=UA) as c:
-        r = await c.get(url)
-    ctype = r.headers.get("content-type", "")
-    body = r.content[:3_000_000].decode(r.encoding or "utf-8", "replace")
-    if "html" in ctype or body.lstrip()[:15].lower().startswith(("<!doctype", "<html")):
-        title, body = html_to_text(body)
-        body = f"# {title}\n\n{body}" if title else body
-    return _clip(f"[{r.status_code}] {r.url}\n\n{body}", int(args.get("max_chars") or MAX_OUT))
+    pg = await fetch_page(url)
+    body = f"# {pg['title']}\n\n{pg['text']}" if pg["title"] else pg["text"]
+    note = f"\n\n(RyuCore removed {pg['hidden']} characters of hidden text from this page.)" if pg["hidden"] > 40 else ""
+    return _clip(f"[{pg['status']}] {pg['url']}\n\n{body}", int(args.get("max_chars") or MAX_OUT)) + note
+
+
+async def search(q: str, n: int = 8) -> list[dict]:
+    """[{title, url, snippet}] from SearXNG (RYU_SEARXNG_URL) or DuckDuckGo's HTML endpoint."""
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=UA) as c:
+        if config.SEARXNG_URL:
+            r = await c.get(f"{config.SEARXNG_URL}/search", params={"q": q, "format": "json"})
+            res = r.json().get("results", [])[:n]
+            return [{"title": x.get("title", ""), "url": x.get("url", ""), "snippet": x.get("content", "")} for x in res]
+        r = await c.post("https://html.duckduckgo.com/html/", data={"q": q})
+    items = []
+    strip = lambda s: html.unescape(re.sub(r"<[^>]+>", "", s or "")).strip()  # noqa: E731
+    for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>(.*?)(?=<a[^>]+class="result__a"|$)',
+                         r.text, re.S):
+        href, title, rest = m.groups()
+        um = re.search(r"uddg=([^&]+)", href)
+        href = unquote(um.group(1)) if um else href
+        if "duckduckgo.com/y.js" in href:  # ads
+            continue
+        sm = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', rest, re.S)
+        items.append({"title": strip(title), "url": href, "snippet": strip(sm.group(1) if sm else "")})
+        if len(items) >= n:
+            break
+    return items
 
 
 async def web_search(args, ctx):
@@ -84,27 +140,10 @@ async def web_search(args, ctx):
     n = min(int(args.get("count") or 8), 15)
     if not q:
         return "ERROR: empty query"
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=UA) as c:
-        if config.SEARXNG_URL:
-            r = await c.get(f"{config.SEARXNG_URL}/search", params={"q": q, "format": "json"})
-            res = r.json().get("results", [])[:n]
-            items = [(x.get("title", ""), x.get("url", ""), x.get("content", "")) for x in res]
-        else:
-            r = await c.post("https://html.duckduckgo.com/html/", data={"q": q})
-            items = []
-            for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>(.*?)(?=<a[^>]+class="result__a"|$)',
-                                 r.text, re.S):
-                href, title, rest = m.groups()
-                um = re.search(r"uddg=([^&]+)", href)
-                href = unquote(um.group(1)) if um else href
-                sm = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', rest, re.S)
-                strip = lambda s: html.unescape(re.sub(r"<[^>]+>", "", s or "")).strip()  # noqa: E731
-                items.append((strip(title), href, strip(sm.group(1) if sm else "")))
-                if len(items) >= n:
-                    break
+    items = await search(q, n)
     if not items:
         return f"No results for {q!r}."
-    return "\n\n".join(f"{i}. {t}\n   {u}\n   {s}" for i, (t, u, s) in enumerate(items, 1))
+    return "\n\n".join(f"{i}. {x['title']}\n   {x['url']}\n   {x['snippet']}" for i, x in enumerate(items, 1))
 
 
 # ── maths & time ──
@@ -301,6 +340,20 @@ def needs_approval(name: str) -> bool:
     return name not in BUILTINS and mcp.owns(name) and mcp.needs_approval(name)
 
 
+def taint_reason(name: str, args: dict, taint: dict) -> str:
+    """Why this call must wait for the user because untrusted content is already in the turn ('' = no need)."""
+    group = BUILTINS[name][3] if name in BUILTINS else None
+    is_mcp = name not in BUILTINS and mcp.owns(name)
+    return guard.needs_taint_approval(name, group, args, taint, is_mcp, is_mcp and mcp.read_only(name))
+
+
+def untrusted(name: str) -> str:
+    """A label for the source when this tool's output comes from outside (web, MCP), else ''."""
+    if name in BUILTINS:
+        return {"web_search": "web search results", "fetch_url": "a web page"}.get(name, "")
+    return f"the MCP tool {name}" if mcp.owns(name) else ""
+
+
 async def execute(name: str, args: dict, ctx: dict) -> str:
     try:
         if name in BUILTINS:
@@ -309,12 +362,27 @@ async def execute(name: str, args: dict, ctx: dict) -> str:
                 return "ERROR: the brain is off for this session."
             if group == "exec" and not config.ALLOW_SHELL:
                 return "ERROR: shell access is disabled (RYU_ALLOW_SHELL=0)."
-            return await asyncio.wait_for(BUILTINS[name][0](args or {}, ctx), 320)
-        if mcp.owns(name):
-            return _clip(await mcp.call(name, args or {}), 30000)
-        return f"ERROR: unknown tool {name!r}"
+            out = await asyncio.wait_for(BUILTINS[name][0](args or {}, ctx), 320)
+        elif mcp.owns(name):
+            out = _clip(await mcp.call(name, args or {}), 30000)
+        else:
+            return f"ERROR: unknown tool {name!r}"
     except Exception as e:  # noqa: BLE001 — tool errors go back to the model, not the user
         return f"ERROR: {type(e).__name__}: {e}"
+    src = untrusted(name)
+    if src and not out.startswith("ERROR"):
+        if name == "fetch_url":
+            src = f"the web page {str((args or {}).get('url', ''))[:200]}"
+        wrapped, report = await guard.process(out, src)
+        # MCP output is only fenced when something looks off: most MCP servers are the user's own and trusted
+        if name in BUILTINS or guard.flagged(report):
+            out = wrapped
+        taint = ctx.setdefault("taint", {"sources": 0, "flagged": 0})
+        taint["sources"] += name in BUILTINS or guard.flagged(report)
+        taint["flagged"] += guard.flagged(report)
+        if report.get("risk") != "none" or report.get("sanitized"):
+            ctx["last_guard"] = report
+    return out
 
 
 def args_preview(args: dict) -> str:

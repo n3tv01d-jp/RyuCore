@@ -382,6 +382,10 @@ class MCPManager:
         a = self._ann.get(name) or {}
         return a.get("destructiveHint") is True and a.get("readOnlyHint") is not True
 
+    def read_only(self, name: str) -> bool:
+        """The server promises this tool doesn't change anything (MCP `readOnlyHint`)."""
+        return (self._ann.get(name) or {}).get("readOnlyHint") is True
+
     async def call(self, name: str, args: dict) -> str:
         sid, tool = self._map[name]
         c = self.clients.get(sid)

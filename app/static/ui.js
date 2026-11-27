@@ -33,13 +33,19 @@ const themeCols = {};
 })();
 /** Called with the theme id when the user picks one (not when it's synced from the hub). */
 const themeHooks = [];
-let hubPalettes = [];
+let hubPalettes = [], customThemes = [];
 try { hubPalettes = JSON.parse(store.get('palettes') || '[]') || []; } catch { /* stale */ }
+try { customThemes = JSON.parse(store.get('customThemes') || '[]') || []; } catch { /* stale */ }
+const isCustom = id => String(id || '').startsWith('x-');
 const swatch = id => `<span class="sw">${(themeCols[id] || []).map(c => `<i style="background:${esc(c)}"></i>`).join('')}</span>`;
 const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(', ');
 /** The hub's colours as inline variables (they win over the stylesheet), or none without a hub. */
 function paintPalette(id) {
-  const st = document.documentElement.style, p = hubPalettes.find(x => x.id === id);
+  paintColours(customThemes.find(x => x.id === id) || hubPalettes.find(x => x.id === id));
+}
+/** Paint a palette {a1,a2,a3,surface,panel,bg,bg2,text,dim,faint} as inline variables, or clear them (p = null). */
+function paintColours(p) {
+  const st = document.documentElement.style;
   const plain = ['bg', 'bg2', 'text', 'dim', 'faint'];
   if (!p) {
     for (const v of ['a1', 'a2', 'a3']) { st.removeProperty(`--${v}`); st.removeProperty(`--${v}-rgb`); }
@@ -53,8 +59,10 @@ function paintPalette(id) {
 }
 function renderThemeLists() {
   const menu = $('#themeMenu'), grid = $('#themeGrid');
-  if (menu) menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}">${swatch(t.id)}${esc(t.name)}<em>${esc(t.jp)}</em></button>`).join('');
-  if (grid) grid.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}">${swatch(t.id)}${esc(t.name)} ${esc(t.jp)}</button>`).join('');
+  const mark = t => (isCustom(t.id) ? '<i class="cust" title="Your theme">✦</i>' : '');
+  if (menu) menu.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}">${swatch(t.id)}${esc(t.name)}${mark(t)}<em>${esc(t.jp)}</em></button>`).join('')
+    + '<button type="button" class="forge-btn" data-forge>✦ THEME FORGE<em>配色工房</em></button>';
+  if (grid) grid.innerHTML = THEMES.map(t => `<button type="button" data-t="${esc(t.id)}">${swatch(t.id)}<span>${esc(t.name)} ${esc(t.jp)}${mark(t)}</span></button>`).join('');
   const cur = document.documentElement.dataset.theme || 'hearth';
   $$('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === cur));
 }
@@ -68,6 +76,40 @@ function setPalettes(list) {
   }
   renderThemeLists();
 }
+/** The user's own themes (THEME FORGE), from the server's settings; cached so the first paint already has them. */
+function setCustomThemes(list) {
+  customThemes = Array.isArray(list) ? list : [];
+  store.set('customThemes', JSON.stringify(customThemes));
+  for (let i = THEMES.length - 1; i >= 0; i--) if (isCustom(THEMES[i].id) && !customThemes.some(c => c.id === THEMES[i].id)) THEMES.splice(i, 1);
+  for (const c of customThemes) {
+    const t = THEMES.find(x => x.id === c.id);
+    if (t) Object.assign(t, { name: c.name, jp: c.jp || '' }); else THEMES.push({ id: c.id, name: c.name, jp: c.jp || '' });
+    themeCols[c.id] = [c.a1, c.a2, c.a3];
+  }
+  renderThemeLists();
+  const cur = document.documentElement.dataset.theme || 'hearth';
+  if (isCustom(cur)) applyTheme(customThemes.some(c => c.id === cur) ? cur : 'hearth');
+}
+
+/* ───────── animated background (fx.js): on/off and effect override are per browser ───────── */
+const bgfx = {
+  on: () => store.get('fx') !== '0',
+  override: () => store.get('fxOverride') || '',
+  /** effect + options for a theme id: custom themes carry their own, built-ins have a default each */
+  of(id) {
+    const c = customThemes.find(x => x.id === id);
+    if (c) return { fx: c.fx || 'plexus', density: c.density ?? 1, speed: c.speed ?? 1, glow: c.glow ?? 1 };
+    return { fx: FX.themeDefault(id), density: +(store.get('fxDensity') || 1), speed: +(store.get('fxSpeed') || 1), glow: 1 };
+  },
+  apply(id = document.documentElement.dataset.theme || 'hearth', preview = null) {
+    if (typeof FX === 'undefined') return;
+    FX.enable(this.on());
+    const cs = getComputedStyle(document.documentElement), o = preview || this.of(id);
+    const fx = !preview && this.override() && !isCustom(id) ? this.override() : o.fx;
+    FX.set(fx, { a1: cs.getPropertyValue('--a1'), a2: cs.getPropertyValue('--a2'), a3: cs.getPropertyValue('--a3') }, o);
+  },
+};
+
 function applyTheme(id, user = false) {
   const t = THEMES.find(x => x.id === id) || THEMES[0];
   if (t.id === 'hearth') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t.id;
@@ -76,6 +118,7 @@ function applyTheme(id, user = false) {
   setText($('#themeName'), t.name);
   $$('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t.id));
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
+  bgfx.apply(t.id);
   if (user) themeHooks.forEach(f => f(t.id));
 }
 function cycleTheme(dir = 1) {
@@ -88,12 +131,21 @@ function cycleTheme(dir = 1) {
     if (!THEMES.some(t => t.id === p.id)) THEMES.push({ id: p.id, name: p.name, jp: p.jp || '' });
     themeCols[p.id] = [p.a1, p.a2, p.a3];
   }
+  for (const c of customThemes) {
+    if (!THEMES.some(t => t.id === c.id)) THEMES.push({ id: c.id, name: c.name, jp: c.jp || '' });
+    themeCols[c.id] = [c.a1, c.a2, c.a3];
+  }
   renderThemeLists();
   const menu = $('#themeMenu'), btn = $('#themeBtn');
   if (menu && btn) {
     const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
     btn.addEventListener('click', e => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute('aria-expanded', String(!menu.hidden)); });
-    menu.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyTheme(b.dataset.t, true); close(); } });
+    menu.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      close();
+      if (b.dataset.forge != null) { if (typeof openForge === 'function') openForge(); return; }
+      applyTheme(b.dataset.t, true);
+    });
     document.addEventListener('click', close);
   }
   $('#themeGrid')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b) applyTheme(b.dataset.t, true); });

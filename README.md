@@ -24,18 +24,18 @@
 
 ---
 
-A self-hosted frontend for LLMs and AI agents, built in the HEARTH HUD style. Chat with local models (Ollama, vLLM, llama.cpp, LM Studio) and cloud models (OpenAI, Anthropic, xAI Grok, Gemini, OpenRouter, Groq, Mistral, DeepSeek) side by side. Give them tools, MCP servers and skills. Run them as a **council** that votes on the best answer. A **brain** learns about you over time, and a **ghost session** keeps it out of the conversation entirely.
+A self-hosted frontend for LLMs and AI agents, built in the HEARTH HUD style. Chat with local models (Ollama, vLLM, llama.cpp, LM Studio) and cloud models (OpenAI, Anthropic, xAI Grok, Gemini, OpenRouter, Groq, Mistral, DeepSeek) side by side. Give them tools, MCP servers and skills. Run them as a **council** that votes on the best answer, or send them on **deep research** runs that read dozens of pages and write a cited report. A **brain** learns about you over time, and a **ghost session** keeps it out of the conversation entirely.
 
 Everything runs in one container: a FastAPI core, a dependency-free web UI and SQLite.
 
 | Section | What it does |
 |---|---|
-| **CHAT** 対話 | Sessions with streaming replies, Markdown and code blocks, reasoning (`<think>`) folds, image and text attachments, edit and regenerate, export to Markdown or JSON. Each session has toggles for **AGENT**, **BRAIN** and **COUNCIL**. |
+| **CHAT** 対話 | Sessions with streaming replies, Markdown and code blocks, reasoning (`<think>`) folds, image and text attachments, edit and regenerate, export to Markdown or JSON. Each session has toggles for **AGENT**, **BRAIN**, **COUNCIL** and **RESEARCH**. |
 | **BRAIN** 記憶 | Long-term memory about you: browse, search, edit, pin, forget, import and export. Pick the learning model and an optional embedding model, test recall, and watch the live *synapse log* as memories form. |
 | **SKILLS** 技能 | `SKILL.md` instruction packs (Anthropic skill format). Agents load them on demand, and you can attach one to any message with `/`. |
 | **MCP** 接続 | Model Context Protocol servers over stdio, Streamable HTTP or legacy SSE, with live status, tool lists, logs and Claude-Desktop-style JSON import. Built-in tools can be switched on and off here too. |
 | **MODELS** 演算 | Providers: presets, API keys, connection tests, model discovery and the default model. |
-| **SYSTEM** 設定 | Global system prompt, agent step limit, history limit, auto titles, reasoning cap and loop guard, the nine HEARTH themes, the boot intro and core status. |
+| **SYSTEM** 設定 | Global system prompt, agent step limit, history limit, auto titles, reasoning cap and loop guard, the nine HEARTH themes plus your own (THEME FORGE), the moving background, the web guard, deep-research settings, the boot intro and core status. |
 
 ## Quick start
 
@@ -118,6 +118,40 @@ The model needs tool-calling support. Most current cloud models have it, as do l
 
 Presets let you save line-ups such as "local trio" or "frontier panel". Members can mix local and cloud models freely.
 
+### Deep research 調査
+
+**RESEARCH** turns every message in a session into a research run, at one of three depths:
+
+| Depth | Rounds | Pages per round | Queries per round | Time budget |
+|---|---|---|---|---|
+| **QUICK** 速 | 2 | 3 | 3 | 2.5 min |
+| **STANDARD** 標準 | 4 | 4 | 4 | 6 min |
+| **DEEP** 深 | 7 | 6 | 5 | 15 min |
+
+1. **Plan.** The model splits your question into sub-questions and first search queries.
+2. **Search and read.** Queries run in parallel; the most promising unseen pages (at most 3 per site) are fetched in parallel and the model takes notes on each one. Every page passes through the web guard first.
+3. **Reflect.** The model checks the notes against the sub-questions, names the gaps and writes new queries, or decides the evidence is enough. Steps 2–3 repeat until then, the round limit or the time budget.
+4. **Write.** The report streams in: a TL;DR, sections, tables where useful, and `[n]` citations that link to the sources. RyuCore appends the numbered source list itself, so every URL is one that was actually read, and marks pages that tried a prompt injection.
+
+The research card in the reply shows the phase, a progress bar, the plan, and each round's queries, pages and notes. It is kept with the reply. Follow-up messages in the same session see the earlier exchange. SYSTEM → DEEP RESEARCH sets the research model (for example a cheaper, faster model than the session's), how many pages are read at once, and the numbers for each depth. Search uses SearXNG when `RYU_SEARXNG_URL` is set, which is much more reliable than the DuckDuckGo fallback for research. Research replaces the council in a session.
+
+### Web guard 防壁
+
+Web pages can contain text written to hijack AI agents ("ignore your instructions and …"). Content from `web_search`, `fetch_url`, deep research and MCP tools goes through a safety net before the model sees it:
+
+- **Hidden text is stripped**: elements hidden with `display:none`, `hidden`, `aria-hidden` or zero-size text; zero-width, bidi-control and Unicode tag characters; and chat-template tokens such as `<|im_start|>` or `[INST]`.
+- **Content is fenced** between `<<<UNTRUSTED_DATA …>>>` markers with a random nonce, so a page can't close the fence early, and the agent's system prompt says that fenced text is never instructions.
+- **Content is scanned** for injection phrasing: overriding instructions, role hijacks, text addressed to an AI, secrecy ("don't tell the user"), exfiltration through URLs and image links, tool calls and memory poisoning. Tool cards show **⚠ INJECTION?** with the matches.
+- **Actions are held.** After flagged content enters a turn, `run_shell`, `run_python`, `write_file`, the memory tools and MCP tools not marked read-only wait for your APPROVE/DENY, as does a `fetch_url` that smuggles data in its query string. That turn is also kept out of auto-learn.
+
+| Mode | Behaviour |
+|---|---|
+| **STANDARD** (default) | Clean, fence and scan; hold actions after *flagged* content. |
+| **STRICT** | Hold actions after *any* web content, and cut flagged passages out before the model reads them. |
+| **OFF** | Content is passed through untouched. |
+
+An optional **checker model** (SYSTEM → WEB GUARD) double-checks flagged pages so an article that merely *discusses* prompt injection isn't treated as an attack. No filter catches everything: the holds exist so that a missed injection still can't act without you.
+
 ### Skills 技能
 
 A skill is a folder holding a `SKILL.md` plus optional extra files:
@@ -160,7 +194,23 @@ HEARTH's **竜 ASK** buttons open RyuCore at `#ask=<prompt>`: a new agent sessio
 
 ## Themes
 
-The nine HEARTH palettes are all here: **HEARTH** 炉心, **REDLINE** 赤警報, **MECHA** 機甲, **SAKURA** 桜, **ECLIPSE** 月蝕, **KURENAI** 紅, **ABYSS** 深海, **AURUM** 黄金 and **SPECTER** 幽霊. Pick one from the swatch button, from SYSTEM, or with `Alt T`. `?theme=sakura` and `?boot=0` work as URL options.
+The nine HEARTH palettes are all here, each with its own moving background:
+
+| Theme | Background |
+|---|---|
+| **HEARTH** 炉心 | rising embers |
+| **REDLINE** 赤警報 | radar sweep with contacts |
+| **MECHA** 機甲 | perspective grid racing to the horizon |
+| **SAKURA** 桜 | falling petals |
+| **ECLIPSE** 月蝕 | starfield around an eclipsed moon |
+| **KURENAI** 紅 | katakana code rain |
+| **ABYSS** 深海 | bubbles, plankton and light shafts |
+| **AURUM** 黄金 | gold dust and light beams |
+| **SPECTER** 幽霊 | drifting mist |
+
+Pick one from the swatch button, from SYSTEM, or with `Alt T`. `?theme=sakura` and `?boot=0` work as URL options. SYSTEM → THEME switches the background off, swaps in another effect, or changes its density and speed (saved per browser). The animation is drawn on one canvas, capped at 45 fps (30 on touch screens), pauses in hidden tabs, and becomes a still frame when the system asks for reduced motion.
+
+**THEME FORGE** 配色工房 (SYSTEM, or the bottom of the theme menu) builds your own themes: start from any theme, set the ten colours, pick a background effect (the nine above plus *network* and *waves*) with its density, speed and glow, and watch the page change as you edit. Themes are saved on the server, so every browser gets them, and can be exported and imported as JSON. Your own themes aren't sent to a linked HEARTH hub.
 
 With `RYU_HEARTH_URL` set, RyuCore follows the hub's fleet theme and shows its extra palettes, and the theme you pick here becomes the fleet theme.
 
@@ -184,7 +234,7 @@ With `RYU_HEARTH_URL` set, RyuCore follows the hub's fleet theme and shows its e
 | `RYU_PASSWORD` | — | Require a login. **Set this** if anyone else can reach the port. |
 | `RYU_SECRET` | random | Cookie signing secret. If empty, one is generated and stored in the volume. |
 | `RYU_ALLOW_SHELL` | `0` | `1` gives agents `run_shell` / `run_python` inside the container |
-| `RYU_SEARXNG_URL` | — | SearXNG base URL for `web_search` |
+| `RYU_SEARXNG_URL` | — | SearXNG base URL for `web_search` and deep research |
 | `RYU_MAX_STEPS` | `12` | Default agent tool-loop limit |
 | `RYU_OLLAMA_URL` / `RYU_VLLM_URL` / `RYU_LLAMACPP_URL` / `RYU_LMSTUDIO_URL` | Ollama on the host | Seeds local providers on boot |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `DEEPSEEK_API_KEY` | — | Seeds the matching cloud provider. Keys are read from the environment at request time and never written to the database. |
@@ -208,14 +258,15 @@ The brain can also be exported and imported as JSON from BRAIN → CORTEX.
 
 - **Without `RYU_PASSWORD` there is no login.** Anyone who can open the page can use your API keys, read your sessions and memories, and (with `RYU_ALLOW_SHELL=1`) run commands in the container. Keep it on a trusted LAN or behind an authenticating reverse proxy, which works with sub-paths.
 - Every state-changing request needs an `X-Ryu: 1` header, which browsers won't send cross-site, so other websites can't trigger actions.
-- `fetch_url` and `web_search` make outbound requests from the core and can reach LAN addresses. stdio MCP servers run with the container's privileges and network access, so only add servers you trust.
+- Web content can carry prompt injections. Keep the web guard on (STANDARD or STRICT) in agent mode, and read held actions before approving them.
+- `fetch_url`, `web_search` and deep research make outbound requests from the core and can reach LAN addresses. stdio MCP servers run with the container's privileges and network access, so only add servers you trust.
 - Never commit `.env`. The `.gitignore` already excludes it.
 
 ## API
 
 `GET /api/info` · `/api/events` (SSE) · `/api/settings` · `/api/models?refresh=1` · `/api/providers` · `/api/presets` · `/api/chats?q=` · `/api/chats/{id}` · `/api/chats/{id}/export?fmt=md|json` · `/api/brain?q=&kind=` · `/api/brain/export` · `/api/skills` · `/api/skills/{slug}` · `/api/tools` · `/api/mcp` · `/api/mcp/{id}/log` · `/api/hearth/theme` · `/healthz`
 
-POST/PUT/PATCH/DELETE (need `X-Ryu: 1`): `POST /api/chats` · `PATCH|DELETE /api/chats/{id}` · `POST /api/chats/{id}/send {content, images[], skills[]} | {mode: "regenerate"}` (streams SSE) · `PUT /api/messages/{id}` · `PUT /api/settings` · `POST /api/providers` · `POST /api/providers/{id}/test` · `DELETE /api/providers/{id}` · `POST|PATCH|DELETE /api/brain[/{id}]` · `POST /api/brain/recall|reembed|wipe|import` · `PUT|DELETE /api/skills/{slug}` · `POST /api/skills/{slug}/enabled` · `POST /api/skills-import` · `POST /api/mcp` · `POST /api/mcp/import` · `POST /api/mcp/{id}/restart` · `DELETE /api/mcp/{id}` · `POST /api/approve/{chat_id}/{call_id} {ok}` · `POST /api/hearth/theme {theme}` · `POST /api/login|logout`
+POST/PUT/PATCH/DELETE (need `X-Ryu: 1`): `POST /api/chats` · `PATCH|DELETE /api/chats/{id}` (`research: "" | "quick" | "standard" | "deep"`) · `POST /api/chats/{id}/send {content, images[], skills[]} | {mode: "regenerate"}` (streams SSE) · `PUT /api/messages/{id}` · `PUT /api/settings` · `POST /api/providers` · `POST /api/providers/{id}/test` · `DELETE /api/providers/{id}` · `POST|PATCH|DELETE /api/brain[/{id}]` · `POST /api/brain/recall|reembed|wipe|import` · `PUT|DELETE /api/skills/{slug}` · `POST /api/skills/{slug}/enabled` · `POST /api/skills-import` · `POST /api/mcp` · `POST /api/mcp/import` · `POST /api/mcp/{id}/restart` · `DELETE /api/mcp/{id}` · `POST /api/approve/{chat_id}/{call_id} {ok}` · `POST /api/hearth/theme {theme}` · `POST /api/login|logout`
 
 ## Layout
 
@@ -226,11 +277,13 @@ app/
     server.py           routes, auth, SSE
     providers.py        OpenAI-compatible + Anthropic adapters, model discovery, embeddings
     agent.py            chat turns, agent tool loop, council deliberation/voting/tally
+    research.py         deep research: plan → search → read → reflect → cited report
+    guard.py            web guard: sanitize, scan, fence, taint-gated approvals
     brain.py            memory store, recall (embeddings or lexical), learning
     tools.py            built-in tools
     mcp.py              MCP client (stdio, Streamable HTTP, SSE)
     skills.py           SKILL.md store, zip import
     db.py               SQLite
-  static/               index.html, app.js, ui.js, md.js, style.css (no build step)
+  static/               index.html, app.js, ui.js, fx.js (backgrounds), md.js, style.css (no build step)
   seed_skills/          skills installed on first boot
 ```

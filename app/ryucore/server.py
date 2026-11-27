@@ -14,7 +14,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import agent, brain, bus, config, db, hearth, providers, skills, tools
+import re
+
+from . import agent, brain, bus, config, db, hearth, providers, research, skills, tools
 from .mcp import manager as mcp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -58,7 +60,7 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="RyuCore", version=config.VERSION, lifespan=lifespan, docs_url=None, redoc_url=None)
-OPEN = {"/login.html", "/api/login", "/healthz", "/style.css", "/favicon.svg", "/ui.js"}
+OPEN = {"/login.html", "/api/login", "/healthz", "/style.css", "/favicon.svg", "/ui.js", "/fx.js"}
 
 
 @app.middleware("http")
@@ -103,6 +105,7 @@ async def healthz():
 @app.get("/api/info")
 async def info():
     return {"version": config.VERSION, "auth": bool(config.PASSWORD), "shell": config.ALLOW_SHELL,
+            "research_depths": {k: research.depth_cfg(k) for k in research.DEPTHS},
             "searxng": bool(config.SEARXNG_URL), "data": str(config.DATA), "workspace": str(config.WORKSPACE),
             "hearth": config.HEARTH_URL or None}
 
@@ -171,9 +174,45 @@ async def get_settings():
 async def put_settings(req: Request):
     body = await req.json()
     for k, v in body.items():
+        if k == "custom_themes":
+            v = _clean_themes(v)
+        elif k == "web_guard" and v not in ("off", "standard", "strict"):
+            raise HTTPException(400, "web_guard must be off, standard or strict")
         if k in db.DEFAULTS:
             db.set_setting(k, v)
     return await get_settings()
+
+
+HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+THEME_COLOURS = ("a1", "a2", "a3", "bg", "bg2", "surface", "panel", "text", "dim", "faint")
+FX = ("embers", "radar", "grid", "petals", "stars", "rain", "bubbles", "dust", "fog", "plexus", "waves", "none")
+
+
+def _clean_themes(v) -> list[dict]:
+    """Custom themes are rendered into styles in every browser: keep only well-formed values."""
+    if not isinstance(v, list):
+        raise HTTPException(400, "custom_themes must be a list")
+    out, ids = [], set()
+    for t in v[:60]:
+        if not isinstance(t, dict):
+            continue
+        tid = str(t.get("id") or "")
+        if not re.fullmatch(r"x-[a-z0-9-]{1,40}", tid) or tid in ids:
+            raise HTTPException(400, f"bad theme id {tid!r}")
+        ids.add(tid)
+        th = {"id": tid, "name": str(t.get("name") or "CUSTOM")[:24], "jp": str(t.get("jp") or "")[:12]}
+        for c in THEME_COLOURS:
+            if not HEX.match(str(t.get(c) or "")):
+                raise HTTPException(400, f"theme {th['name']}: {c} must be a #rrggbb colour")
+            th[c] = str(t[c]).lower()
+        th["fx"] = t.get("fx") if t.get("fx") in FX else "plexus"
+        for k, lo, hi, d in (("density", 0.2, 3.0, 1.0), ("speed", 0.2, 3.0, 1.0), ("glow", 0.0, 2.0, 1.0)):
+            try:
+                th[k] = round(max(lo, min(hi, float(t.get(k, d)))), 2)
+            except (TypeError, ValueError):
+                th[k] = d
+        out.append(th)
+    return out
 
 
 # ───────────── providers & models ─────────────
@@ -245,7 +284,7 @@ async def models(refresh: int = 0):
 # ───────────── chats ─────────────
 @app.get("/api/chats")
 async def list_chats(q: str = ""):
-    sql = "SELECT id, title, model, agent, brain, council IS NOT NULL AND council != 'null' AS council, pinned, created, updated FROM chats"
+    sql = "SELECT id, title, model, agent, brain, council IS NOT NULL AND council != 'null' AS council, research, pinned, created, updated FROM chats"
     args: tuple = ()
     if q:
         sql += " WHERE title LIKE ? OR id IN (SELECT chat_id FROM messages WHERE content LIKE ?)"
@@ -256,7 +295,7 @@ async def list_chats(q: str = ""):
     return rows
 
 
-CHAT_FIELDS = ("title", "model", "system", "agent", "brain", "council", "temperature", "pinned")
+CHAT_FIELDS = ("title", "model", "system", "agent", "brain", "council", "temperature", "pinned", "research")
 
 
 def _chat_row(b: dict) -> dict:
@@ -269,6 +308,8 @@ def _chat_row(b: dict) -> dict:
             v = int(bool(v))
         elif k == "council":
             v = json.dumps(v) if v else None
+        elif k == "research":
+            v = v if v in research.DEPTHS else ""
         elif k == "temperature":
             v = None if v in (None, "") else max(0.0, min(2.0, float(v)))
         row[k] = v
@@ -280,7 +321,7 @@ async def create_chat(req: Request):
     b = await req.json()
     cid = db.new_id()
     row = {"title": "New session", "model": db.setting("default_model") or "", "system": "", "agent": 0, "brain": 1,
-           "council": None, "temperature": None, "pinned": 0} | _chat_row(b)
+           "council": None, "temperature": None, "pinned": 0, "research": ""} | _chat_row(b)
     db.insert("chats", {"id": cid, **row, "created": db.now(), "updated": db.now()})
     return db.chat(cid)
 
@@ -315,7 +356,8 @@ async def send(cid: str, req: Request):
     if not c:
         raise HTTPException(404, "no such chat")
     b = await req.json()
-    if not c["council"] and not agent.chat_model(c):
+    needs_model = c.get("research") or not c["council"]
+    if needs_model and not agent.chat_model(c) and not (c.get("research") and db.setting("research_model")):
         raise HTTPException(400, "Pick a model first (MODELS tab → add a provider).")
     mode = b.get("mode", "new")
     if mode == "regenerate":
@@ -334,7 +376,7 @@ async def send(cid: str, req: Request):
         meta = {k: v for k, v in (("images", images), ("skills", skill_names), ("files", b.get("files") or [])) if v}
         db.add_message(cid, "user", content, meta)
     async def gen():
-        runner = agent.run_council if c["council"] else agent.run
+        runner = research.run if c.get("research") else agent.run_council if c["council"] else agent.run
         try:
             async for ev in runner(c, skill_names):
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"

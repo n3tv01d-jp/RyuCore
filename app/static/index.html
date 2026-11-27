@@ -13,6 +13,7 @@
 <script>try{var t=new URLSearchParams(location.search).get('theme')||localStorage.getItem('ryucore.theme');if(t&&t!=='hearth')document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body class="app">
+<canvas id="bgfx" aria-hidden="true"></canvas>
 <div class="bg-hex" aria-hidden="true"></div>
 <div class="bg-scan" aria-hidden="true"></div>
 
@@ -80,6 +81,7 @@
       <button class="tgl mode" id="agentTgl" type="button" aria-pressed="false" title="Agent mode: tools, MCP, skills (A)"><span class="sw-dot"></span>AGENT<em>自律</em></button>
       <button class="tgl mode on" id="brainTgl" type="button" aria-pressed="true" title="Brain: recall and learn memories in this session (B)"><span class="sw-dot"></span>BRAIN<em>記憶</em></button>
       <button class="tgl mode council" id="councilTgl" type="button" aria-pressed="false" title="Council: several models answer and vote (C)"><span class="sw-dot"></span>COUNCIL<em>評議</em></button>
+      <button class="tgl mode research" id="researchTgl" type="button" aria-pressed="false" aria-haspopup="true" title="Deep research: plan, search, read and reflect over many pages, then write a cited report"><span class="sw-dot"></span>RESEARCH<em>調査</em><span class="rs-depth" id="researchDepth"></span></button>
       <span class="sp"></span>
       <button class="tgl sm" id="sysBtn" type="button" title="Session prompt and temperature">⚙ TUNE</button>
       <button class="tgl sm" id="exportBtn" type="button" title="Export this session">⤓</button>
@@ -208,15 +210,35 @@
     <section class="panel">
       <div class="ph"><span class="no">02</span><h2>THEME</h2><span class="jp">配色</span></div>
       <div class="sb-themes" id="themeGrid"></div>
+      <div class="sb-btns"><button class="tgl" id="forgeNew" type="button">✦ NEW THEME</button><button class="tgl" id="forgeEdit" type="button">✎ EDIT CURRENT</button></div>
       <div class="sb-tgl">Boot intro <button class="tgl sm" id="bootTgl" type="button">ON</button></div>
+      <div class="sb-tgl">Moving background <button class="tgl sm" id="fxTgl" type="button">ON</button></div>
+      <div class="sb-tgl">Background effect <select id="fxSel" aria-label="Background effect"></select></div>
+      <div class="sb-tgl">Density <input type="range" id="fxDensity" min="0.2" max="3" step="0.1" aria-label="Background density"></div>
+      <div class="sb-tgl">Speed <input type="range" id="fxSpeed" min="0.2" max="3" step="0.1" aria-label="Background speed"></div>
+      <p class="hint">Saved in this browser. Your own themes keep the effect set in the forge.</p>
     </section>
     <section class="panel">
-      <div class="ph"><span class="no">03</span><h2>CORE STATUS</h2><span class="jp">状態</span></div>
+      <div class="ph"><span class="no">03</span><h2>WEB GUARD</h2><span class="jp">防壁</span></div>
+      <p class="hint">A safety net against prompt injection: text on web pages that tries to give the agent orders.
+        Hidden page text is stripped, content is fenced as untrusted data and scanned, and risky actions afterwards need your OK.</p>
+      <div class="set-row"><div><b>Mode</b><small id="gModeHint"></small></div>
+        <select id="gMode" aria-label="Guard mode"><option value="standard">STANDARD</option><option value="strict">STRICT</option><option value="off">OFF</option></select></div>
+      <div class="set-row"><div><b>Checker model</b><small>Double-checks flagged pages, so articles that only discuss injection aren't treated as attacks. Empty = heuristics only.</small></div><button class="model-btn" id="gModel" type="button"></button></div>
+    </section>
+    <section class="panel">
+      <div class="ph"><span class="no">04</span><h2>DEEP RESEARCH</h2><span class="jp">調査</span></div>
+      <div class="set-row"><div><b>Research model</b><small>Plans, takes notes, reflects and writes the report. Empty = the session's model.</small></div><button class="model-btn" id="rModel" type="button"></button></div>
+      <div class="set-row"><div><b>Parallel page reads</b><small>Pages read at once. Lower it for a single local GPU.</small></div><input type="number" id="rPar" min="1" max="8"></div>
+      <div class="rs-depths" id="rDepths"></div>
+    </section>
+    <section class="panel">
+      <div class="ph"><span class="no">05</span><h2>CORE STATUS</h2><span class="jp">状態</span></div>
       <dl class="sb-kv" id="sysInfo"></dl>
       <button class="tgl sb-wide" id="logoutBtn" type="button" hidden>LOG OUT</button>
     </section>
     <section class="panel">
-      <div class="ph"><span class="no">04</span><h2>KEYS</h2><span class="jp">操作</span></div>
+      <div class="ph"><span class="no">06</span><h2>KEYS</h2><span class="jp">操作</span></div>
       <div class="keys">
         <kbd>Alt N</kbd><span>New session</span><kbd>Alt G</kbd><span>New ghost session (no brain)</span>
         <kbd>/</kbd><span>Skill menu (in the composer)</span><kbd>Esc</kbd><span>Stop generating / close</span>
@@ -238,6 +260,7 @@
 <footer class="foot" id="foot">RYUCORE 竜核 · <span id="footInfo">connecting</span></footer>
 
 <script src="md.js"></script>
+<script src="fx.js"></script>
 <script src="ui.js"></script>
 <script src="app.js"></script>
 </body>

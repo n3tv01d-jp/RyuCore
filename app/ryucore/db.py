@@ -42,6 +42,15 @@ DEFAULTS = {
     "anthropic_max_tokens": 8192,
     "reasoning_max_chars": 60000,   # stop a reply whose reasoning grows past this with no answer; 0 = no cap
     "reasoning_loop_detect": True,  # stop a reply whose reasoning repeats the same passage over and over
+    # guard 防壁: prompt-injection safety net for web content (off | standard | strict) and an optional checker model
+    "web_guard": "standard",
+    "web_guard_model": "",
+    # deep research 調査
+    "research_model": "",       # empty = the session's model
+    "research_parallel": 3,     # pages read at the same time
+    "research_depths": {},      # overrides of research.DEPTHS, e.g. {"deep": {"rounds": 8}}
+    # theme forge 配色工房: the user's own themes
+    "custom_themes": [],
 }
 
 _lock = threading.RLock()
@@ -51,6 +60,10 @@ with _lock:
     _conn.execute("PRAGMA journal_mode=WAL")
     _conn.execute("PRAGMA foreign_keys=ON")
     _conn.executescript(SCHEMA)
+    # migrations: columns added after the first release
+    _cols = {r[1] for r in _conn.execute("PRAGMA table_info(chats)").fetchall()}
+    if "research" not in _cols:
+        _conn.execute("ALTER TABLE chats ADD COLUMN research TEXT DEFAULT ''")
 
 
 def new_id() -> str:

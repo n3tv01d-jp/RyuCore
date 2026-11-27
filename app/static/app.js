@@ -143,7 +143,7 @@ function renderSessions() {
     const b = bucket(c);
     if (b !== last) { h += `<h6>${b}</h6>`; last = b; }
     const badges = [c.pinned ? '<span class="bdg b-pin">PIN</span>' : '', c.council ? '<span class="bdg b-council">COUNCIL</span>' : '',
-      c.agent ? '<span class="bdg b-agent">AGENT</span>' : '', !c.brain ? '<span class="bdg b-ghost">GHOST</span>' : ''].join('');
+      c.research ? '<span class="bdg b-research">RESEARCH</span>' : '', c.agent ? '<span class="bdg b-agent">AGENT</span>' : '', !c.brain ? '<span class="bdg b-ghost">GHOST</span>' : ''].join('');
     h += `<li class="si${S.chat?.id === c.id ? ' on' : ''}" data-id="${c.id}" tabindex="0">
       <span class="si-t">${esc(c.title || 'Untitled')}</span>
       <span class="si-m">${badges}<span>${since(c.updated)}</span><span>${esc(c.council ? '' : modelName(c.model))}</span></span>
@@ -185,7 +185,7 @@ function newDraft(opts = {}) {
   const prev = S.chat;
   const fallback = (S.models.find(m => !/embed/i.test(m.name)) || {}).id || '';
   S.chat = { id: null, title: 'New session', model: S.settings.default_model || prev?.model || fallback, system: '', agent: !!prev?.agent && !opts.reset,
-    brain: opts.brain ?? true, council: null, temperature: null, pinned: false };
+    brain: opts.brain ?? true, council: null, temperature: null, pinned: false, research: opts.reset ? '' : (prev?.research || '') };
   if (opts.brain === false) S.chat.agent = prev?.agent || false;
   S.msgs = []; S.live = null; S.openFolds.clear();
   store.set('chat', '');
@@ -236,6 +236,8 @@ function renderChatBar() {
   set($('#brainTgl'), !!c.brain);
   $('#brainTgl').classList.toggle('brain-off', !c.brain);
   set($('#councilTgl'), councilOn);
+  set($('#researchTgl'), !!c.research);
+  setText($('#researchDepth'), c.research ? c.research.toUpperCase() : '');
   $('#ghostBanner').hidden = !!c.brain;
   const bits = [];
   if (c.temperature != null) bits.push(`T ${c.temperature}`);
@@ -252,7 +254,34 @@ $('#brainTgl').addEventListener('click', () => {
   patchChat({ brain: !S.chat.brain });
   toast(S.chat.brain ? 'BRAIN ON // 記憶 — recalling and learning' : 'BRAIN OFF // 無記憶 — nothing recalled or remembered from here on', S.chat.brain ? 'ok' : '');
 });
-$('#councilTgl').addEventListener('click', () => openCouncil());
+$('#councilTgl').addEventListener('click', () => {
+  if (S.chat.research) return toast('Research mode is on. Switch RESEARCH off to convene a council.', 'warn');
+  openCouncil();
+});
+/* deep research 調査: pick a depth (or off) */
+const DEPTH_INFO = { quick: ['QUICK', '速'], standard: ['STANDARD', '標準'], deep: ['DEEP', '深'] };
+$('#researchTgl').addEventListener('click', () => {
+  const anchor = $('#researchTgl'), cur = S.chat.research || '';
+  const d = S.info.research_depths || {};
+  const fmtT = s => (s >= 60 ? `${Math.round(s / 60)} min` : `${s}s`);
+  const box = html(`<div class="pl" role="listbox"><h5>DEEP RESEARCH 調査<small>depth</small></h5></div>`);
+  box.insertAdjacentHTML('beforeend', `<button type="button" class="pi${!cur ? ' on' : ''}" data-d=""><span>OFF</span><small>normal replies</small></button>`
+    + Object.entries(DEPTH_INFO).map(([k, [n, jp]]) => {
+      const c = d[k] || {};
+      return `<button type="button" class="pi${cur === k ? ' on' : ''}" data-d="${k}"><span>${n} ${jp}</span><small>${c.rounds ?? '?'} rounds · ${c.pages ?? '?'} pages each · ≤ ${fmtT(c.time ?? 0)}</small></button>`;
+    }).join('')
+    + `<div class="pempty">Each message becomes a research run: plan → search → read → reflect, then a report with cited sources. Every page passes the web guard 防壁.</div>`);
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-d]'); if (!b) return;
+    pop.close();
+    const v = b.dataset.d;
+    const patch = { research: v };
+    if (v && S.chat.council) { patch.council = null; toast('COUNCIL DISBANDED: research replaces it'); }
+    patchChat(patch);
+    toast(v ? `DEEP RESEARCH // 調査 — ${DEPTH_INFO[v][0]}` : 'RESEARCH OFF', v ? 'ok' : '');
+  });
+  pop.open(anchor, box, { width: 340 });
+});
 $('#chatTitle').addEventListener('click', () => {
   if (!S.chat.id) return toast('Send a message first, then rename the session.');
   const f = html(`<form class="g-form"><label>TITLE<input name="t" maxlength="120" autofocus></label><div class="row"><span class="sp"></span><button class="tgl on" type="submit">RENAME</button></div></form>`);
@@ -358,6 +387,78 @@ function renderCouncil(cn, live) {
     <div class="cn-seats">${cards}</div>${verdict}</div>`;
 }
 
+/* ═════════════ deep research 調査 ═════════════ */
+const RS_PHASES = [['plan', 'PLAN', '計画'], ['search', 'SEARCH', '検索'], ['read', 'READ', '読解'], ['reflect', 'REFLECT', '省察'], ['write', 'WRITE', '執筆']];
+const RS_ST = { queued: ['·', 'QUEUED'], reading: ['◌', 'READING'], read: ['✓', 'READ'], irrelevant: ['–', 'OFF-TOPIC'], skipped: ['–', 'SKIPPED'], failed: ['✕', 'FAILED'], flagged: ['⚠', 'FLAGGED'] };
+const domainOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+/* repaint the live turn once a second while a run is going, so the clock moves between events */
+function researchTick(on) {
+  clearInterval(researchTick.t); researchTick.t = 0;
+  if (on) researchTick.t = setInterval(() => { if (S.live) paintLive(); else researchTick(false); }, 1000);
+}
+function renderResearch(rs, live, key) {
+  const done = !live || rs.phase === 'done' || rs.phase === 'stopped';
+  const cfg = rs.cfg || {}, rounds = (rs.rounds || []).filter(Boolean), srcs = rs.sources || [];
+  const elapsed = live && !done ? Date.now() / 1000 - rs.started : rs.elapsed || 0;
+  const read = srcs.filter(x => x.status === 'read' || x.status === 'flagged').length, flagged = srcs.filter(x => x.status === 'flagged').length;
+  const nq = rounds.reduce((n, r) => n + r.queries.length, 0);
+  const pi = RS_PHASES.findIndex(p => p[0] === rs.phase);
+  const steps = RS_PHASES.map(([id, n, jp], i) => `<span class="${done ? 'ok' : i < pi ? 'ok' : i === pi ? 'go' : ''}">${n}<em>${jp}</em></span>`).join('<i>▸</i>');
+  // progress: rounds done (+ the write phase), capped by the time budget
+  const frac = done ? 1 : rs.phase === 'write' ? 0.92 : Math.min(0.9, Math.max((rounds.length - 0.5) / (cfg.rounds || 1) * 0.9, elapsed / (cfg.time || 1)));
+  const plan = rs.plan || {};
+  const planH = plan.questions?.length || plan.goal ? `${plan.goal ? `<p class="rs-goal">${esc(plan.goal)}</p>` : ''}<ol>${(plan.questions || []).map(q => `<li>${esc(q)}</li>`).join('')}</ol>` : '<p class="rs-dim">planning…</p>';
+  const srcRow = x => {
+    const [ic, lab] = RS_ST[x.status] || ['·', x.status];
+    const g = x.guard;
+    const gl = g && (g.labels?.length || g.model_flag || g.hidden > 40) ? `<span class="gbadge ${x.status === 'flagged' ? 'high' : 'low'}" title="${esc([...(g.labels || []), g.model_flag ? 'note-taker saw instructions' : '', g.hidden > 40 ? g.hidden + ' hidden chars removed' : ''].filter(Boolean).join(' · '))}">⚠ ${x.status === 'flagged' ? 'INJECTION?' : 'GUARD'}</span>` : '';
+    const note = x.summary || x.note || x.snippet || '';
+    return `<li class="rs-src st-${esc(x.status)}"><span class="n">${x.n}</span><span class="ic" title="${lab}">${ic}</span>
+      <div><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || domainOf(x.url))}</a><small>${esc(domainOf(x.url))} · ${lab}</small>${gl}
+      ${note ? `<p>${esc(note)}</p>` : ''}${x.facts?.length ? `<ul class="rs-facts">${x.facts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}</div></li>`;
+  };
+  const roundsH = rounds.map(r => {
+    const q = r.queries.map(x => `<span class="chip mono" title="${esc(x.error || '')}">⌕ ${esc(x.q)}${x.count == null ? ' …' : ` · ${x.count}`}</span>`).join('');
+    const ss = r.sources.map(n => srcs.find(x => x.n === n)).filter(Boolean).map(srcRow).join('');
+    const ref = r.reflect ? `<div class="rs-ref"><b>${r.reflect.enough ? 'ENOUGH ✓' : 'GAPS'}</b>${(r.reflect.gaps || []).map(g => `<span>${esc(g)}</span>`).join('') || '<span>—</span>'}</div>` : '';
+    return `<div class="rs-round"><h6>ROUND ${r.n + 1}<em>第${r.n + 1}巡</em></h6><div class="chips">${q}</div><ul class="rs-srcs">${ss}</ul>${ref}</div>`;
+  }).join('');
+  const notes = (rs.notes || []).map(n => `<div class="m-note">${esc(n)}</div>`).join('');
+  return `<div class="rs-card${done ? ' done' : ''}"><div class="rs-head">⌕ DEEP RESEARCH<em>調査</em>
+      <span class="ph-s">${esc((rs.depth || '').toUpperCase())} · ${done ? `${read} SOURCES · ${nq} QUERIES · ${mmss(elapsed)}` : `ROUND ${Math.min(rounds.length || 1, cfg.rounds || 1)}/${cfg.rounds || '?'} · ${mmss(elapsed)} / ${mmss(cfg.time || 0)}`}</span></div>
+    <div class="rs-steps">${steps}</div>
+    <div class="bar rs-bar"><i style="--w:${(frac * 100).toFixed(1)}%"></i></div>
+    ${flagged ? `<div class="rs-warn">⚠ ${flagged} page${flagged > 1 ? 's' : ''} contained text aimed at AI agents. ${flagged > 1 ? 'They were' : 'It was'} fenced as untrusted, and the report marks ${flagged > 1 ? 'them' : 'it'}.</div>` : ''}
+    ${fold(`rsplan:${key}`, 'rs-fold', `PLAN <em>計画</em><code>${(plan.questions || []).length} sub-questions</code>`, planH, live && !done && rs.phase === 'plan')}
+    ${rounds.length ? fold(`rstrail:${key}`, 'rs-fold', `TRAIL <em>経過</em><code>${rounds.length} round${rounds.length > 1 ? 's' : ''} · ${srcs.length} pages · ${read} useful</code>`, roundsH, live && !done) : ''}
+    ${notes}</div>`;
+}
+/* [n] citations in a research report → links to the numbered source */
+function linkCites(h, sources) {
+  if (!sources?.length) return h;
+  const by = new Map(sources.map(x => [x.n, x]));
+  return h.replace(/\[(\d{1,3})\](?![^<]*<\/a>)/g, (m, n) => {
+    const x = by.get(+n);
+    return x ? `<a class="cite${x.status === 'flagged' ? ' flag' : ''}" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" title="${esc((x.title || '') + ' — ' + domainOf(x.url))}">[${n}]</a>` : m;
+  });
+}
+/* guard 防壁 report on a tool card */
+function guardBadge(g) {
+  if (!g) return '';
+  const hi = g.risk === 'high' || g.risk === 'medium';
+  if (!hi && !g.sanitized) return '';
+  return `<span class="gbadge ${hi ? 'high' : 'low'}">${hi ? '⚠ INJECTION?' : '⛨ CLEANED'}</span>`;
+}
+function guardDetail(g) {
+  if (!g || (g.risk === 'none' && !g.sanitized)) return '';
+  const hits = (g.hits || []).map(h => `<li><b>${esc(h.label)}</b>${esc(h.excerpt)}</li>`).join('');
+  const san = g.sanitized ? Object.entries(g.sanitized).map(([k, v]) => `${v} ${k.replace('_', ' ')}`).join(', ') : '';
+  return `<div class="gdetail"><label>GUARD 防壁 · risk ${esc(g.risk)}${g.downgraded ? ' (checker: not an attack)' : ''}${g.redacted ? ' · passages removed' : ''}</label>
+    ${g.model ? `<p>Checker: ${esc(g.model.reason || (g.model.injection ? 'injection' : 'benign'))}</p>` : ''}
+    ${san ? `<p>Stripped before the model saw it: ${esc(san)}.</p>` : ''}${hits ? `<ul>${hits}</ul>` : ''}</div>`;
+}
+
 /* ═════════════ messages ═════════════ */
 const WELCOME = [
   ['RESEARCH', 'Research the trade-offs between vLLM, llama.cpp and Ollama for serving a 70B model at home.'],
@@ -370,13 +471,14 @@ function welcome() {
   const nTools = S.mcp.reduce((n, s) => n + (s.status === 'ready' ? s.tools.length : 0), 0);
   let kao = '(｀・ω・´)', mood = 'ONLINE', line = 'Core online. What are we building today?', jp = '竜核、起動完了。ご用件をどうぞ。';
   if (!S.models.length) { kao = '(・・;)ゞ'; mood = 'NO MODEL'; line = 'No model linked yet. Open MODELS and connect Ollama, vLLM, llama.cpp or a cloud provider.'; jp = 'モデル未接続です。'; }
+  else if (c.research) { kao = '(・_・)ノ⌕'; mood = 'RESEARCH'; line = `Deep research armed (${c.research}). Ask a question and I'll plan, search, read and cross-check sources, then write you a cited report.`; jp = '調査モード、準備完了。'; }
   else if (councilOn) { kao = '(・ω・)ノ⚖'; mood = 'COUNCIL'; line = `The council of ${c.council.members.length} is assembled. Ask, and they'll answer, argue it out and vote.`; jp = '評議会、招集完了。'; }
   else if (!c.brain) { kao = '(￣ー￣)ゞ'; mood = 'GHOST'; line = "Ghost session. I won't recall anything, and I'll forget all of this. Promise."; jp = '記憶なしモードです。'; }
   else if (c.agent) { kao = '(ง •̀_•́)ง'; mood = 'AGENT'; line = `Agent mode armed${nTools ? `: ${nTools} MCP tools online` : ''}. Give me a mission and I'll use my tools.`; jp = '自律モード、待機中。'; }
   else if (S.brainCount) { line = `Core online. I remember ${S.brainCount} thing${S.brainCount === 1 ? '' : 's'} about you. What are we building today?`; }
   const chips = [
     councilOn ? `<span class="tag warn">COUNCIL ×${c.council.members.length}</span>` : (c.model ? `<span class="tag ok">${esc(modelName(c.model))}</span>` : '<span class="tag warn">NO MODEL</span>'),
-    c.agent ? '<span class="tag ok">AGENT</span>' : '<span class="tag dim">CHAT</span>',
+    c.research ? `<span class="tag ok">RESEARCH · ${esc(c.research.toUpperCase())}</span>` : c.agent ? '<span class="tag ok">AGENT</span>' : '<span class="tag dim">CHAT</span>',
     c.brain ? `<span class="tag ok">BRAIN · ${S.brainCount}</span>` : '<span class="tag dim">BRAIN OFF</span>',
   ].join('');
   return html(`<div class="welcome">
@@ -451,12 +553,13 @@ function renderAI(rows, { live = false, isLast = false } = {}) {
   asst.forEach((r, idx) => {
     const meta = r.meta || {}, key = r.id || `live${idx}`;
     if (meta.council) { meta.council._key = key; h += renderCouncil(meta.council, live); }
+    if (meta.research) h += renderResearch(meta.research, live, key);
     const { think, text } = MD.splitThink(r.content || '');
     const reasoning = ((meta.reasoning || '') + (think ? '\n' + think : '')).trim();
     const streamingHere = live && idx === asst.length - 1;
     if (reasoning) h += fold(`think:${key}`, 'think', `${streamingHere && !text ? '◌ THINKING' : 'REASONING'} <em>思考</em><code>${reasoning.length} chars</code>`, esc(reasoning), streamingHere && !text);
-    if (text) { h += `<div class="md">${MD.render(text)}</div>`; finalText = text; }
-    else if (streamingHere && !reasoning && !(meta.tool_calls || []).length && !meta.council) h += '<div class="md empty"></div>';
+    if (text) { h += `<div class="md">${meta.research ? linkCites(MD.render(text), meta.research.sources) : MD.render(text)}</div>`; finalText = text; }
+    else if (streamingHere && !reasoning && !(meta.tool_calls || []).length && !meta.council && (!meta.research || meta.research.phase === 'write')) h += '<div class="md empty"></div>';
     for (const tc of meta.tool_calls || []) {
       const res = results.get(tc.id);
       const appr = res?.meta?.approval || (live ? S.live?.approvals?.[tc.id] : null);
@@ -467,9 +570,12 @@ function renderAI(rows, { live = false, isLast = false } = {}) {
       else if (appr === 'approved') stl += ' · APPROVED';
       const argStr = JSON.stringify(tc.arguments ?? {}, null, 1);
       const isMcp = tc.name.includes('__');
-      h += fold(`tool:${tc.id}`, `tool ${st}`, `${isMcp ? '⧉' : '⚙'} <b>${esc(tc.name)}</b><code>${esc(argStr.replace(/\s+/g, ' ').slice(0, 140))}</code><span class="tst">${stl}</span>`,
-        `<label>INPUT</label><pre>${esc(argStr)}</pre>${res ? `<label>OUTPUT · ${res.content.length} chars</label><pre>${esc(res.content)}</pre>` : ''}`, waiting);
-      if (waiting) h += `<div class="t-appr" role="group" aria-label="Approve tool call"><span><b>APPROVAL // 承認</b> This tool can change things on the server. Run it with the input above?</span>
+      const g = res?.meta?.guard, hold = res?.meta?.guard_hold || (live ? S.live?.holds?.[tc.id] : null);
+      h += fold(`tool:${tc.id}`, `tool ${st}${g && (g.risk === 'high' || g.risk === 'medium') ? ' flagged' : ''}`, `${isMcp ? '⧉' : '⚙'} <b>${esc(tc.name)}</b><code>${esc(argStr.replace(/\s+/g, ' ').slice(0, 140))}</code>${guardBadge(g)}${hold ? '<span class="gbadge low">⛨ HELD</span>' : ''}<span class="tst">${stl}</span>`,
+        `<label>INPUT</label><pre>${esc(argStr)}</pre>${hold ? `<p class="g-hold">⛨ Held for approval because ${esc(hold)}.</p>` : ''}${guardDetail(g)}${res ? `<label>OUTPUT · ${res.content.length} chars</label><pre>${esc(res.content)}</pre>` : ''}`, waiting);
+      if (waiting) h += `<div class="t-appr${hold ? ' guard' : ''}" role="group" aria-label="Approve tool call"><span>${hold
+        ? `<b>GUARD // 防壁</b> On hold: this turn ${esc(hold.replace(/^it /, ''))}. A web page may be steering the agent. Run it with the input above?`
+        : '<b>APPROVAL // 承認</b> This tool can change things on the server. Run it with the input above?'}</span>
         <button type="button" class="tgl" data-approve="0" data-call="${esc(tc.id)}">✕ DENY</button><button type="button" class="tgl on" data-approve="1" data-call="${esc(tc.id)}">✓ APPROVE</button></div>`;
     }
     if (meta.error && meta.error !== 'interrupted') h += `<div class="m-err"><b>FAULT // 障害</b>${esc(meta.error)}</div>`;
@@ -530,7 +636,7 @@ $('#sendBtn').addEventListener('click', e => { if (S.streaming) { e.preventDefau
 async function ensureChat() {
   if (S.chat.id) return;
   const c = S.chat;
-  const created = await POST('api/chats', { model: c.model, agent: c.agent, brain: c.brain, council: c.council, system: c.system, temperature: c.temperature });
+  const created = await POST('api/chats', { model: c.model, agent: c.agent, brain: c.brain, council: c.council, system: c.system, temperature: c.temperature, research: c.research || '' });
   S.chat = created; store.set('chat', created.id);
   S.chats.unshift({ ...created, council: !!created.council });
   renderSessions();
@@ -544,12 +650,39 @@ function onEvent(ev) {
     case 'text': if (cur()) cur().content += ev.text; break;
     case 'reasoning': if (cur()) cur().meta.reasoning += ev.text; break;
     case 'tool_call': cur()?.meta.tool_calls.push({ id: ev.id, name: ev.name, arguments: ev.arguments }); break;
-    case 'tool_result': L.rows.push({ role: 'tool', content: ev.content, meta: { tool_call_id: ev.id, name: ev.name, approval: ev.approval } }); break;
-    case 'approval': (L.approvals ||= {})[ev.id] = 'pending'; toast('APPROVAL // a tool is waiting for your OK', 'warn'); break;
+    case 'tool_result': L.rows.push({ role: 'tool', content: ev.content, meta: { tool_call_id: ev.id, name: ev.name, approval: ev.approval, guard: ev.guard, guard_hold: ev.guard_hold } }); break;
+    case 'approval':
+      (L.approvals ||= {})[ev.id] = 'pending';
+      if (ev.reason) (L.holds ||= {})[ev.id] = ev.reason;
+      toast(ev.reason ? 'GUARD // 防壁 — an action is on hold after suspicious web content' : 'APPROVAL // a tool is waiting for your OK', 'warn');
+      break;
+    case 'guard': toast(`GUARD // 防壁 — ${ev.name} returned content that looks like a prompt injection`, 'warn'); break;
+    case 'research_start':
+      L.rows.push({ role: 'assistant', content: '', created: Date.now() / 1000,
+        meta: { model: ev.model, reasoning: '', tool_calls: [], research: { depth: ev.depth, cfg: ev.cfg, started: ev.started, phase: 'plan', plan: {}, rounds: [], sources: [], notes: [] } } });
+      researchTick(true);
+      break;
+    case 'research_phase': { const r = cur().meta.research; r.phase = ev.phase; if (ev.round != null) r.round = ev.round; break; }
+    case 'research_plan': cur().meta.research.plan = ev.plan; break;
+    case 'research_round': cur().meta.research.rounds[ev.round] = { n: ev.round, queries: ev.queries.map(q => ({ q, count: null })), sources: [] }; break;
+    case 'research_query': {
+      const rd = cur().meta.research.rounds[ev.round], q = rd?.queries.find(x => x.q === ev.q && x.count == null);
+      if (q) Object.assign(q, { count: ev.count, error: ev.error });
+      break;
+    }
+    case 'research_source': {
+      const r = cur().meta.research, src = ev.source, i = r.sources.findIndex(x => x.n === src.n);
+      if (i < 0) r.sources.push(src); else r.sources[i] = src;
+      const rd = r.rounds[src.round]; if (rd && !rd.sources.includes(src.n)) rd.sources.push(src.n);
+      break;
+    }
+    case 'research_reflect': { const rd = cur().meta.research.rounds[ev.round]; if (rd) rd.reflect = { enough: ev.enough, gaps: ev.gaps, queries: ev.queries }; break; }
+    case 'research_note': cur().meta.research.notes.push(ev.text); break;
+    case 'research_done': { const r = cur(); Object.assign(r.meta.research, ev.research); r.content = r.content.trimEnd() + (ev.sources_md || ''); researchTick(false); break; }
     case 'approval_done': (L.approvals ||= {})[ev.id] = ev.ok ? 'approved' : 'denied'; break;
     case 'ping': return;
     case 'notice': L.notices.push(ev.text); break;
-    case 'error': L.error = ev.error; break;
+    case 'error': L.error = ev.error; researchTick(false); break;
     case 'council_start':
       L.rows.push({ role: 'assistant', content: '', created: Date.now() / 1000,
         meta: { council: { members: ev.members, answers: ev.members.map(() => ''), errors: [], done: ev.members.map(() => false), ballots: [], phase: 'answer' } } });
@@ -598,6 +731,7 @@ async function send(text, mode = 'new') {
   } catch (e) {
     if (e.name !== 'AbortError') { S.live.error = e.message; paintLive(); toast(e.message, 'crit'); }
   } finally {
+    researchTick(false);
     S.streaming = null;
     setSending(false);
     const err = S.live?.error;
@@ -1074,6 +1208,157 @@ function renderSystem() {
     <dt>DATA</dt><dd>${esc(i.data)}</dd><dt>WORKSPACE</dt><dd>${esc(i.workspace)}</dd><dt>PROVIDERS</dt><dd>${S.providers.length}</dd><dt>MODELS</dt><dd>${S.models.length}</dd>
     <dt>MCP</dt><dd>${S.mcp.filter(x => x.status === 'ready').length} / ${S.mcp.length} ready</dd><dt>MEMORIES</dt><dd>${S.brainCount}</dd>`;
   $('#logoutBtn').hidden = !i.auth;
+  // web guard 防壁
+  $('#gMode').value = s.web_guard || 'standard';
+  setText($('#gModeHint'), GUARD_HINT[$('#gMode').value]);
+  setModelBtn($('#gModel'), s.web_guard_model, 'HEURISTICS ONLY');
+  // deep research 調査
+  setModelBtn($('#rModel'), s.research_model, 'SAME AS SESSION');
+  $('#rPar').value = s.research_parallel ?? 3;
+  const d = i.research_depths || {};
+  $('#rDepths').innerHTML = `<div class="rs-dh"><span></span><span>ROUNDS</span><span>PAGES / ROUND</span><span>QUERIES / ROUND</span><span>TIME (S)</span></div>`
+    + Object.entries(DEPTH_INFO).map(([k, [n, jp]]) => `<div class="rs-dr" data-k="${k}"><b>${n}<em>${jp}</em></b>${['rounds', 'pages', 'queries', 'time'].map(f =>
+      `<input type="number" data-f="${f}" min="1" max="${{ rounds: 12, pages: 10, queries: 8, time: 3600 }[f]}" value="${d[k]?.[f] ?? ''}" aria-label="${n} ${f}">`).join('')}</div>`).join('');
+  // background 背景
+  const fxOn = bgfx.on(); $('#fxTgl').classList.toggle('on', fxOn); $('#fxTgl').textContent = fxOn ? 'ON' : 'OFF';
+  $('#fxSel').innerHTML = `<option value="">THEME DEFAULT</option>` + FX.list.map(f => `<option value="${f}">${esc(FX.describe[f])}</option>`).join('');
+  $('#fxSel').value = bgfx.override();
+  $('#fxDensity').value = store.get('fxDensity') || 1; $('#fxSpeed').value = store.get('fxSpeed') || 1;
+  const custom = isCustom(document.documentElement.dataset.theme);
+  $('#forgeEdit').textContent = custom ? '✎ EDIT CURRENT' : '⧉ DUPLICATE CURRENT';
+}
+const GUARD_HINT = {
+  standard: 'Web content is cleaned, fenced and scanned. After a page that looks like an injection, shell, file, memory and MCP actions need your OK.',
+  strict: 'As standard, but after ANY web content those actions need your OK, and suspicious passages are cut out before the model reads them.',
+  off: 'No protection: web content goes to the model as-is. Not recommended for agent mode.',
+};
+$('#gMode').addEventListener('change', e => { setText($('#gModeHint'), GUARD_HINT[e.target.value]); saveSettings({ web_guard: e.target.value }); });
+$('#gModel').addEventListener('click', e => openModelPicker(e.currentTarget, S.settings.web_guard_model, async id => { await saveSettings({ web_guard_model: id }); renderSystem(); }, { none: 'HEURISTICS ONLY' }));
+$('#rModel').addEventListener('click', e => openModelPicker(e.currentTarget, S.settings.research_model, async id => { await saveSettings({ research_model: id }); renderSystem(); }, { none: 'SAME AS SESSION' }));
+$('#rPar').addEventListener('change', e => saveSettings({ research_parallel: Math.max(1, Math.min(8, +e.target.value || 3)) }));
+$('#rDepths').addEventListener('change', async e => {
+  const inp = e.target.closest('input[data-f]'); if (!inp) return;
+  const all = { ...(S.settings.research_depths || {}) };
+  for (const row of $$('.rs-dr', $('#rDepths'))) all[row.dataset.k] = Object.fromEntries($$('input', row).filter(x => x.value).map(x => [x.dataset.f, +x.value]));
+  await saveSettings({ research_depths: all });
+  try { S.info = await GET('api/info'); } catch { /* keep the old numbers */ }
+  renderSystem();
+});
+$('#fxTgl').addEventListener('click', () => { store.set('fx', bgfx.on() ? '0' : '1'); bgfx.apply(); renderSystem(); });
+$('#fxSel').addEventListener('change', e => { store.set('fxOverride', e.target.value); bgfx.apply(); });
+for (const id of ['fxDensity', 'fxSpeed']) $('#' + id).addEventListener('change', e => { store.set(id, e.target.value); bgfx.apply(); });
+$('#forgeNew').addEventListener('click', () => openForge());
+$('#forgeEdit').addEventListener('click', () => {
+  const cur = document.documentElement.dataset.theme || 'hearth';
+  if (isCustom(cur)) openForge(cur); else openForge(null, cur);
+});
+
+/* ═════════════ THEME FORGE 配色工房: build, preview and save your own themes ═════════════ */
+const FORGE_FIELDS = [['a1', 'PRIMARY', 'Accents, active controls, headings'], ['a2', 'SECONDARY', 'Your messages, highlights'], ['a3', 'TERTIARY', 'Badges, minor accents'],
+  ['bg', 'BACKGROUND', 'Page behind everything'], ['bg2', 'BACKGROUND 2', 'Menus, secondary fills'], ['surface', 'SURFACE', 'Header and panel tops'],
+  ['panel', 'PANEL', 'Panel body'], ['text', 'TEXT', 'Main text'], ['dim', 'DIM TEXT', 'Secondary text'], ['faint', 'FAINT TEXT', 'Hints and labels']];
+const toHex = v => {
+  v = String(v || '').trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(v)) return '#' + [...v.slice(1)].map(c => c + c).join('').toLowerCase();
+  const n = v.match(/\d+(\.\d+)?/g);
+  return n && n.length >= 3 ? '#' + n.slice(0, 3).map(x => Math.round(+x).toString(16).padStart(2, '0')).join('') : '#000000';
+};
+/** The ten colours of any theme (built-in ones are read from the stylesheet). */
+function themeColours(id) {
+  const c = customThemes.find(x => x.id === id) || hubPalettes.find(x => x.id === id);
+  if (c) return Object.fromEntries(FORGE_FIELDS.map(([k]) => [k, toHex(c[k])]));
+  const root = document.documentElement, saved = root.getAttribute('style') || '', prev = root.dataset.theme;
+  root.removeAttribute('style');
+  if (id === 'hearth') delete root.dataset.theme; else root.dataset.theme = id;
+  const cs = getComputedStyle(root), get = v => cs.getPropertyValue(v).trim();
+  const out = { a1: toHex(get('--a1')), a2: toHex(get('--a2')), a3: toHex(get('--a3')), bg: toHex(get('--bg')), bg2: toHex(get('--bg2')),
+    surface: toHex(get('--s-rgb')), panel: toHex(get('--panel')), text: toHex(get('--text')), dim: toHex(get('--dim')), faint: toHex(get('--faint')) };
+  if (saved) root.setAttribute('style', saved);
+  if (prev) root.dataset.theme = prev; else delete root.dataset.theme;
+  return out;
+}
+function openForge(editId = null, baseId = null) {
+  const prevTheme = document.documentElement.dataset.theme || 'hearth';
+  const editing = editId ? customThemes.find(x => x.id === editId) : null;
+  const base = editing || { ...themeColours(baseId || prevTheme),
+    name: baseId ? `${(THEMES.find(t => t.id === baseId)?.name || 'MY').slice(0, 18)} ALT` : 'MY THEME', jp: '', fx: bgfx.of(baseId || prevTheme).fx, density: 1, speed: 1, glow: 1 };
+  const th = { ...base };
+  const f = html(`<form class="g-form forge">
+    <div class="two"><label>NAME<input name="name" maxlength="24" required></label><label>SUBTITLE (JP)<input name="jp" maxlength="12" placeholder="例: 夜桜"></label></div>
+    <label>START FROM<select name="base"><option value="">— keep current colours —</option>${THEMES.map(t => `<option value="${esc(t.id)}">${esc(t.name)} ${esc(t.jp)}</option>`).join('')}</select></label>
+    <div class="fg-cols">${FORGE_FIELDS.map(([k, n, hint]) => `<label class="fg-c" title="${esc(hint)}"><input type="color" data-c="${k}"><span><b>${n}</b><small>${esc(hint)}</small></span><input class="hex" data-h="${k}" maxlength="7" spellcheck="false" aria-label="${n} hex"></label>`).join('')}</div>
+    <div class="fg-fx"><label>BACKGROUND EFFECT<select name="fx">${FX.list.map(x => `<option value="${x}">${esc(FX.describe[x])}</option>`).join('')}</select></label>
+      <label>DENSITY <output data-o="density"></output><input type="range" name="density" min="0.2" max="3" step="0.1"></label>
+      <label>SPEED <output data-o="speed"></output><input type="range" name="speed" min="0.2" max="3" step="0.1"></label>
+      <label>GLOW <output data-o="glow"></output><input type="range" name="glow" min="0" max="2" step="0.1"></label></div>
+    <div class="fg-prev"><div class="fg-ph"><span class="no">01</span><b>PREVIEW</b><em>試写</em></div>
+      <div class="fg-row"><span class="tgl on">ACTIVE</span><span class="tgl">IDLE</span><span class="lc local">LOCAL</span><span class="tag ok">OK</span><span class="tag warn">WARN</span></div>
+      <p class="fg-msg">Changes preview live on the whole page. <span style="color:var(--dim)">Dim text</span> · <span style="color:var(--faint)">faint text</span></p></div>
+    <div class="row">${editing ? '<button class="tgl" type="button" data-del style="color:var(--red)">DELETE</button>' : ''}
+      <button class="tgl" type="button" data-exp>⤓ EXPORT</button><button class="tgl" type="button" data-imp>⤒ IMPORT</button><input type="file" accept=".json,application/json" hidden data-file>
+      <span class="sp"></span>${editing ? '<button class="tgl" type="button" data-copy>SAVE AS NEW</button>' : ''}<button class="tgl on" type="submit">${editing ? 'SAVE THEME' : 'CREATE THEME'}</button></div></form>`);
+  const fill = () => {
+    f.name.value = th.name; f.jp.value = th.jp || ''; f.fx.value = th.fx || 'plexus';
+    for (const k of ['density', 'speed', 'glow']) { f[k].value = th[k]; setText($(`[data-o="${k}"]`, f), (+th[k]).toFixed(1) + '×'); }
+    for (const [k] of FORGE_FIELDS) { $(`[data-c="${k}"]`, f).value = th[k]; $(`[data-h="${k}"]`, f).value = th[k]; }
+  };
+  const preview = () => { paintColours(th); bgfx.apply(null, th); };
+  fill(); preview();
+  f.addEventListener('input', e => {
+    const el = e.target;
+    if (el.dataset.c) { th[el.dataset.c] = el.value; $(`[data-h="${el.dataset.c}"]`, f).value = el.value; }
+    else if (el.dataset.h) { if (!/^#[0-9a-f]{6}$/i.test(el.value)) return; th[el.dataset.h] = el.value.toLowerCase(); $(`[data-c="${el.dataset.h}"]`, f).value = th[el.dataset.h]; }
+    else if (['density', 'speed', 'glow'].includes(el.name)) { th[el.name] = +el.value; setText($(`[data-o="${el.name}"]`, f), (+el.value).toFixed(1) + '×'); }
+    else if (el.name === 'name' || el.name === 'jp') { th[el.name] = el.value; return; }
+    else return;
+    preview();
+  });
+  f.fx.addEventListener('change', () => { th.fx = f.fx.value; preview(); });
+  f.base.addEventListener('change', () => { if (!f.base.value) return; Object.assign(th, themeColours(f.base.value)); th.fx = bgfx.of(f.base.value).fx; fill(); preview(); });
+  let saved = false;
+  const save = async asNew => {
+    if (!th.name.trim()) return toast('Give the theme a name.', 'warn');
+    const slug = th.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'theme';
+    const id = editing && !asNew ? editing.id : `x-${slug}-${Math.random().toString(36).slice(2, 6)}`;
+    const out = { id, name: th.name.trim().toUpperCase().slice(0, 24), jp: (th.jp || '').trim(), fx: th.fx, density: +th.density, speed: +th.speed, glow: +th.glow,
+      ...Object.fromEntries(FORGE_FIELDS.map(([k]) => [k, th[k]])) };
+    const list = customThemes.filter(x => x.id !== id).concat(out);
+    try { S.settings = await api('PUT', 'api/settings', { custom_themes: list }); } catch (err) { return toast(err.message, 'crit'); }
+    saved = true;
+    setCustomThemes(S.settings.custom_themes);
+    applyTheme(id, true);
+    modal.close();
+    toast(`THEME FORGED // ${out.name}`, 'ok');
+    if (S.view === 'system') renderSystem();
+  };
+  f.addEventListener('submit', e => { e.preventDefault(); save(false); });
+  $('[data-copy]', f)?.addEventListener('click', () => save(true));
+  $('[data-del]', f)?.addEventListener('click', async () => {
+    if (!await confirmBox(`Delete the theme “${editing.name}”?`, 'DELETE')) return openForge(editId);
+    try { S.settings = await api('PUT', 'api/settings', { custom_themes: customThemes.filter(x => x.id !== editing.id) }); } catch (err) { return toast(err.message, 'crit'); }
+    setCustomThemes(S.settings.custom_themes);
+    applyTheme(prevTheme === editing.id ? 'hearth' : prevTheme, true);
+    toast('THEME DELETED');
+    if (S.view === 'system') renderSystem();
+  });
+  $('[data-exp]', f).addEventListener('click', () => {
+    const rest = { ...th };
+    download(`ryucore-theme-${(th.name || 'theme').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.json`, JSON.stringify({ ryucore_theme: 1, theme: rest }, null, 1));
+  });
+  $('[data-imp]', f).addEventListener('click', () => $('[data-file]', f).click());
+  $('[data-file]', f).addEventListener('change', async e => {
+    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+    try {
+      const j = JSON.parse(await readFile(file)), t = j.theme || j;
+      for (const [k] of FORGE_FIELDS) if (!/^#[0-9a-f]{6}$/i.test(t[k] || '')) throw new Error(`${k} is not a #rrggbb colour`);
+      Object.assign(th, Object.fromEntries(FORGE_FIELDS.map(([k]) => [k, t[k].toLowerCase()])), { name: String(t.name || th.name).slice(0, 24), jp: String(t.jp || '').slice(0, 12) },
+        FX.list.includes(t.fx) ? { fx: t.fx } : {}, ...['density', 'speed', 'glow'].filter(k => isFinite(+t[k]) && t[k] != null).map(k => ({ [k]: +t[k] })));
+      fill(); preview(); toast('THEME LOADED — save it to keep it', 'ok');
+    } catch (err) { toast('Import failed: ' + err.message, 'crit'); }
+  });
+  modal.open(editing ? `THEME FORGE // ${editing.name}` : 'THEME FORGE // 配色工房', f, 'wide forge-modal');
+  modal.onclose = () => { if (!saved) applyTheme(prevTheme); };
 }
 $('#sysForm').addEventListener('submit', e => {
   e.preventDefault();
@@ -1177,7 +1462,7 @@ const HEARTH = {
     if (!QS.get('theme')) applyTheme(j.theme);
   },
 };
-themeHooks.push(id => { if (S.info?.hearth) POST('api/hearth/theme', { theme: id }).then(r => { HEARTH.rev = r.rev; }).catch(e => toast('HEARTH // ' + e.message, 'warn')); });
+themeHooks.push(id => { if (S.info?.hearth && !isCustom(id)) POST('api/hearth/theme', { theme: id }).then(r => { HEARTH.rev = r.rev; }).catch(e => toast('HEARTH // ' + e.message, 'warn')); });
 
 /* ═════════════ boot ═════════════ */
 (async function boot() {
@@ -1193,6 +1478,7 @@ themeHooks.push(id => { if (S.info?.hearth) POST('api/hearth/theme', { theme: id
   ]);
   try {
     [S.info] = await Promise.all([GET('api/info'), loadSettings()]);
+    setCustomThemes(S.settings.custom_themes);
   } catch (e) { toast('Core unreachable: ' + e.message, 'crit'); }
   await Promise.all([loadModels(), loadChats(), loadMcp(true), GET('api/brain').then(r => { S.brainCount = r.stats.total; }).catch(() => {})]);
   setText($('#footInfo'), S.info.auth ? `v${S.info.version}` : `v${S.info.version} · `);

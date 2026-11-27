@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 
 def _flag(name: str, default: str = "0") -> bool:
