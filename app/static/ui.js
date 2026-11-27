@@ -4,9 +4,14 @@
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const QS = new URLSearchParams(location.search);
+/* Two apps, one codebase: RyuCore at / and Companion 伴侶 at /companion/ (its own data on the server too). */
+const REALM = /\/companion\/(?:[^/]*)$/.test(location.pathname) ? 'companion' : 'core';
+const COMP = REALM === 'companion';
+const REALM_KEYS = new Set(['chat']);  // per-app keys; looks (theme, effects, boot intro) are shared
+const skey = k => 'ryucore.' + (COMP && REALM_KEYS.has(k) ? 'companion.' : '') + k;
 const store = {
-  get(k) { try { return localStorage.getItem('ryucore.' + k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem('ryucore.' + k, v); } catch { /* private mode */ } },
+  get(k) { try { return localStorage.getItem(skey(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(skey(k), v); } catch { /* private mode */ } },
 };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function setText(el, t) { if (el && el.textContent !== t) el.textContent = t; }

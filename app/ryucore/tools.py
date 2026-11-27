@@ -13,11 +13,15 @@ from urllib.parse import unquote
 
 import httpx
 
-from . import brain, config, db, guard, skills
+from . import brain, config, db, guard, realm, skills
 from .mcp import manager as mcp
 
 MAX_OUT = 16000
-WS = config.WORKSPACE
+
+
+def _wsroot():
+    """Each realm has its own workspace."""
+    return config.COMPANION_WORKSPACE if realm.is_companion() else config.WORKSPACE
 
 
 def _clip(s: str, n: int = MAX_OUT) -> str:
@@ -187,8 +191,9 @@ async def current_datetime(args, ctx):
 
 # ── workspace files ──
 def _ws(path: str):
-    p = (WS / (path or ".").lstrip("/")).resolve()
-    if not p.is_relative_to(WS.resolve()):
+    root = _wsroot()
+    p = (root / (path or ".").lstrip("/")).resolve()
+    if not p.is_relative_to(root.resolve()):
         raise PermissionError("path escapes the workspace")
     return p
 
@@ -199,7 +204,7 @@ async def list_files(args, ctx):
         return "ERROR: no such directory"
     out = []
     for f in sorted(p.rglob("*") if args.get("recursive") else p.iterdir())[:500]:
-        rel = f.relative_to(WS.resolve())
+        rel = f.relative_to(_wsroot().resolve())
         out.append(f"{rel}/" if f.is_dir() else f"{rel}  ({f.stat().st_size} B)")
     return "\n".join(out) or "(empty)"
 
@@ -220,15 +225,15 @@ async def write_file(args, ctx):
             f.write(content)
     else:
         p.write_text(content, "utf-8")
-    return f"wrote {len(content)} chars to {p.relative_to(WS.resolve())}"
+    return f"wrote {len(content)} chars to {p.relative_to(_wsroot().resolve())}"
 
 
 async def _proc(*cmd, shell=False, timeout=60):
     if shell:
-        proc = await asyncio.create_subprocess_shell(cmd[0], cwd=str(WS), stdout=asyncio.subprocess.PIPE,
+        proc = await asyncio.create_subprocess_shell(cmd[0], cwd=str(_wsroot()), stdout=asyncio.subprocess.PIPE,
                                                      stderr=asyncio.subprocess.STDOUT)
     else:
-        proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(WS), stdout=asyncio.subprocess.PIPE,
+        proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(_wsroot()), stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout)

@@ -26,6 +26,10 @@ HEARTH_TOKEN = os.environ.get("RYU_HEARTH_TOKEN", "").strip()  # = the hub's HEA
 DB_PATH = DATA / "ryucore.db"
 SKILLS_DIR = DATA / "skills"
 WORKSPACE = DATA / "workspace"
+# Companion 伴侶: its own database and workspace, beside RyuCore's
+COMPANION_DATA = DATA / "companion"
+COMPANION_DB = COMPANION_DATA / "companion.db"
+COMPANION_WORKSPACE = COMPANION_DATA / "workspace"
 
-for _d in (DATA, SKILLS_DIR, WORKSPACE):
+for _d in (DATA, SKILLS_DIR, WORKSPACE, COMPANION_DATA, COMPANION_WORKSPACE):
     _d.mkdir(parents=True, exist_ok=True)

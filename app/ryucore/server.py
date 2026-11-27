@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 import re
 
-from . import agent, brain, bus, config, db, hearth, providers, research, skills, tools
+from . import agent, brain, bus, config, db, hearth, providers, realm, research, skills, tools
 from .mcp import manager as mcp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -76,6 +76,10 @@ async def guard(req: Request, call_next):
     return await call_next(req)
 
 
+# outermost: /companion/… is the Companion app, served from the same files with its own data
+app.add_middleware(realm.Middleware)
+
+
 @app.post("/api/login")
 async def login(req: Request):
     body = await req.json()
@@ -107,7 +111,8 @@ async def info():
     return {"version": config.VERSION, "auth": bool(config.PASSWORD), "shell": config.ALLOW_SHELL,
             "research_depths": {k: research.depth_cfg(k) for k in research.DEPTHS},
             "searxng": bool(config.SEARXNG_URL), "data": str(config.DATA), "workspace": str(config.WORKSPACE),
-            "hearth": config.HEARTH_URL or None}
+            "hearth": config.HEARTH_URL or None, "realm": realm.current(),
+            "companion_data": str(config.COMPANION_DATA)}
 
 
 # ───────────── HEARTH link 炉心 ─────────────
@@ -178,12 +183,23 @@ async def put_settings(req: Request):
             v = _clean_themes(v)
         elif k == "web_guard" and v not in ("off", "standard", "strict"):
             raise HTTPException(400, "web_guard must be off, standard or strict")
+        elif k == "companion_avatar":
+            v = str(v or "")
+            if v and not AVATAR.match(v):
+                raise HTTPException(400, "the avatar must be a PNG, JPEG, WebP or GIF image")
+            if len(v) > 600_000:
+                raise HTTPException(400, "the avatar is too large (keep it under about 400 KB)")
+        elif k == "companion_name":
+            v = str(v or "").strip()[:40]
+        elif k == "companion_persona":
+            v = str(v or "")[:12000]
         if k in db.DEFAULTS:
             db.set_setting(k, v)
     return await get_settings()
 
 
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+AVATAR = re.compile(r"^data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$")
 THEME_COLOURS = ("a1", "a2", "a3", "bg", "bg2", "surface", "panel", "text", "dim", "faint")
 FX = ("embers", "radar", "grid", "petals", "stars", "rain", "bubbles", "dust", "fog", "plexus", "waves", "none")
 

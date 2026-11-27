@@ -39,6 +39,28 @@ document.addEventListener('toggle', e => {
   if (d.open) { S.openFolds.add(k); S.openFolds.delete('!' + k); } else { S.openFolds.delete(k); S.openFolds.add('!' + k); }
 }, true);
 const nearBottom = el => el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+/* ═════════════ Companion 伴侶: the same app at /companion/, with its own data and a face ═════════════ */
+const compName = () => (S.settings.companion_name || '').trim() || 'Companion';
+function avatarHTML(cls = 'm-ava') {
+  const src = S.settings.companion_avatar;
+  return src ? `<div class="${cls}"><img src="${esc(src)}" alt="${esc(compName())}"></div>`
+    : `<div class="${cls} none" aria-hidden="true"><span>${esc([...compName()][0].toUpperCase())}</span></div>`;
+}
+function applyRealm() {
+  const link = $('#link');
+  link.href = COMP ? '../' : 'companion/';
+  link.title = COMP ? 'Back to RyuCore 竜核' : 'Open Companion 伴侶';
+  if (!COMP) return;
+  document.body.classList.add('companion');
+  const name = compName();
+  document.title = `${name.toUpperCase()} // 伴侶`;
+  $('.brand').title = name;
+  $('.logo').innerHTML = `${esc(name.toUpperCase())}<em>伴侶</em>`;
+  setText($('.sub'), '伴侶 · AI COMPANION');
+  setText($('.foot').firstChild, `${name.toUpperCase()} 伴侶 · `);
+  $('#input').placeholder = `Message ${name}… ( / for skills )`;
+  $('#profilePanel').hidden = false;
+}
 const copyText = async t => { try { await navigator.clipboard.writeText(t); toast('COPIED // 複写', 'ok'); } catch { toast('Clipboard unavailable', 'warn'); } };
 
 /* ═════════════ popover (model picker, slash menu) ═════════════ */
@@ -466,7 +488,14 @@ const WELCOME = [
   ['CODE', 'Write a Python script that watches a folder and summarises new text files.'],
   ['ABOUT ME', 'Ask me five questions so you can learn how I like to work.'],
 ];
+const COMP_WELCOME = [
+  ['CHECK IN', "Hey, how's your day going? Here's what I've been up to…"],
+  ['GET TO KNOW ME', 'Ask me a few questions so you can get to know me better.'],
+  ['TALK IT OUT', "Something's on my mind and I'd like to talk it through."],
+  ['JUST FOR FUN', 'Tell me a story, or let\'s play a word game.'],
+];
 function welcome() {
+  if (COMP) return compWelcome();
   const c = S.chat, councilOn = !!c.council?.members?.length;
   const nTools = S.mcp.reduce((n, s) => n + (s.status === 'ready' ? s.tools.length : 0), 0);
   let kao = '(｀・ω・´)', mood = 'ONLINE', line = 'Core online. What are we building today?', jp = '竜核、起動完了。ご用件をどうぞ。';
@@ -486,7 +515,23 @@ function welcome() {
       <div class="nav-talk"><div class="nt-mood">${mood}</div><p class="w-line">${esc(line)}</p><p class="nt-jp">${jp}</p><div class="w-modes">${chips}</div></div></div>
     <div class="w-sugg">${WELCOME.map(([k, t]) => `<button type="button" data-p="${esc(t)}"><b>${k}</b>${esc(t)}</button>`).join('')}</div></div>`);
 }
+function compWelcome() {
+  const c = S.chat, name = compName();
+  let line = `Hi, I'm ${name}. What's on your mind?`, mood = 'HERE FOR YOU';
+  if (!S.models.length) { mood = 'NO MODEL'; line = 'No model linked yet. Open MODELS and connect one so we can talk.'; }
+  else if (!c.brain) { mood = 'GHOST'; line = "Just between us: I won't remember any of this afterwards."; }
+  else if (S.brainCount) line = `Welcome back. I remember ${S.brainCount} thing${S.brainCount === 1 ? '' : 's'} about you. What's new?`;
+  const chips = [
+    c.model ? `<span class="tag ok">${esc(modelName(c.model))}</span>` : '<span class="tag warn">NO MODEL</span>',
+    c.brain ? `<span class="tag ok">MEMORY · ${S.brainCount}</span>` : '<span class="tag dim">MEMORY OFF</span>',
+  ].join('');
+  return html(`<div class="welcome comp-welcome">
+    <div class="nav-body"><button type="button" class="nav-face cw-face" data-profile title="Edit ${esc(name)}'s profile">${avatarHTML('cw-ava')}<div class="nf-name">${esc(name.toUpperCase())}</div></button>
+      <div class="nav-talk"><div class="nt-mood${!S.models.length ? ' warn' : ''}">${mood}</div><p class="w-line">${esc(line)}</p><p class="nt-jp">いつでもそばに。</p><div class="w-modes">${chips}</div></div></div>
+    <div class="w-sugg">${COMP_WELCOME.map(([k, t]) => `<button type="button" data-p="${esc(t)}"><b>${k}</b>${esc(t)}</button>`).join('')}</div></div>`);
+}
 $('#msgs').addEventListener('click', e => {
+  if (e.target.closest('[data-profile]')) { showView('system'); $('#pfName').focus(); return; }
   const sug = e.target.closest('.w-sugg button');
   if (sug) { $('#input').value = sug.dataset.p; autosize(); $('#input').focus(); return; }
   const cp = e.target.closest('[data-copy]');
@@ -538,7 +583,8 @@ function renderAI(rows, { live = false, isLast = false } = {}) {
   const results = new Map(rows.filter(r => r.role === 'tool').map(r => [r.meta?.tool_call_id, r]));
   const first = asst[0], lastA = asst[asst.length - 1];
   const model = lastA?.meta?.model || '';
-  const art = html(`<article class="msg ai${live ? ' streaming' : ''}"><header><span class="who">RYU</span><em>竜</em><span class="mdl"></span><time></time></header><div class="stack"></div><div class="m-act"></div></article>`);
+  const art = html(`<article class="msg ai${live ? ' streaming' : ''}${COMP ? ' has-ava' : ''}">${COMP ? avatarHTML() : ''}<header><span class="who"></span><em>${COMP ? '伴侶' : '竜'}</em><span class="mdl"></span><time></time></header><div class="stack"></div><div class="m-act"></div></article>`);
+  setText(art.querySelector('.who'), COMP ? compName().toUpperCase() : 'RYU');
   setText(art.querySelector('.mdl'), model ? `${modelName(model)}${asst.some(r => r.meta?.tool_calls?.length) ? ' · agent' : ''}` : '');
   setText(art.querySelector('time'), first?.created ? hm(first.created) : '');
   const stack = art.querySelector('.stack');
@@ -964,7 +1010,7 @@ $('#bReembed').addEventListener('click', async () => {
   if (!S.settings.brain_embed_model) return toast('Pick an embedding model first.', 'warn');
   try { const r = await POST('api/brain/reembed'); toast(`EMBEDDED ${r.embedded} MEMORIES`, 'ok'); loadBrain(); } catch (e) { toast(e.message, 'crit'); }
 });
-$('#bExport').addEventListener('click', async () => { const r = await GET('api/brain/export'); download('ryucore-brain.json', JSON.stringify(r, null, 1)); });
+$('#bExport').addEventListener('click', async () => { const r = await GET('api/brain/export'); download(COMP ? 'companion-brain.json' : 'ryucore-brain.json', JSON.stringify(r, null, 1)); });
 $('#bImport').addEventListener('click', () => $('#bImportFile').click());
 $('#bImportFile').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -1199,13 +1245,14 @@ $('#provList').addEventListener('click', async e => {
 /* ═════════════ SYSTEM 設定 ═════════════ */
 function renderSystem() {
   const s = S.settings, i = S.info;
+  if (COMP) renderProfile();
   $('#sGlobal').value = s.system_prompt || ''; $('#sSteps').value = s.max_steps; $('#sHist').value = s.history_limit;
   $('#sAnth').value = s.anthropic_max_tokens; $('#sTitle').value = s.auto_title ? '1' : '0';
   $('#sRCap').value = s.reasoning_max_chars; $('#sRLoop').value = s.reasoning_loop_detect ? '1' : '0';
   const boot = store.get('boot') !== '0'; $('#bootTgl').classList.toggle('on', boot); $('#bootTgl').textContent = boot ? 'ON' : 'OFF';
   $('#sysInfo').innerHTML = `<dt>VERSION</dt><dd>${esc(i.version)}</dd><dt>LOGIN</dt><dd class="${i.auth ? '' : 'warn'}">${i.auth ? 'password' : 'OFF — open to anyone who can reach it'}</dd>
     <dt>SHELL TOOLS</dt><dd class="${i.shell ? 'warn' : ''}">${i.shell ? 'ENABLED' : 'locked'}</dd><dt>WEB SEARCH</dt><dd>${i.searxng ? 'SearXNG' : 'DuckDuckGo'}</dd>
-    <dt>DATA</dt><dd>${esc(i.data)}</dd><dt>WORKSPACE</dt><dd>${esc(i.workspace)}</dd><dt>PROVIDERS</dt><dd>${S.providers.length}</dd><dt>MODELS</dt><dd>${S.models.length}</dd>
+    <dt>DATA</dt><dd>${esc(COMP ? i.companion_data : i.data)}</dd><dt>WORKSPACE</dt><dd>${esc(COMP ? i.companion_data + '/workspace' : i.workspace)}</dd><dt>PROVIDERS</dt><dd>${S.providers.length}</dd><dt>MODELS</dt><dd>${S.models.length}</dd>
     <dt>MCP</dt><dd>${S.mcp.filter(x => x.status === 'ready').length} / ${S.mcp.length} ready</dd><dt>MEMORIES</dt><dd>${S.brainCount}</dd>`;
   $('#logoutBtn').hidden = !i.auth;
   // web guard 防壁
@@ -1226,6 +1273,52 @@ function renderSystem() {
   $('#fxDensity').value = store.get('fxDensity') || 1; $('#fxSpeed').value = store.get('fxSpeed') || 1;
   const custom = isCustom(document.documentElement.dataset.theme);
   $('#forgeEdit').textContent = custom ? '✎ EDIT CURRENT' : '⧉ DUPLICATE CURRENT';
+}
+/* companion profile 伴侶: name, picture, persona */
+const PF = { avatar: null };  // the picture being edited (null = unchanged)
+function renderProfile() {
+  PF.avatar = null;
+  $('#pfName').value = S.settings.companion_name || '';
+  $('#pfPersona').value = S.settings.companion_persona || '';
+  paintProfileAva(S.settings.companion_avatar);
+}
+function paintProfileAva(src) {
+  const b = $('#pfAva');
+  b.classList.toggle('none', !src);
+  b.innerHTML = src ? `<img src="${esc(src)}" alt="">` : `<span>${esc([...(($('#pfName').value || '').trim() || 'Companion')][0].toUpperCase())}</span><small>ADD PICTURE</small>`;
+}
+/** Centre-crop to a square and shrink, so the picture stays small enough to keep in settings. */
+async function squareAvatar(file, size = 256) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('not an image')); i.src = url; });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const cv = document.createElement('canvas'); cv.width = cv.height = Math.min(size, side) || size;
+    cv.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, cv.width, cv.height);
+    const webp = cv.toDataURL('image/webp', 0.9);
+    return webp.startsWith('data:image/webp') ? webp : cv.toDataURL('image/jpeg', 0.9);
+  } finally { URL.revokeObjectURL(url); }
+}
+if (COMP) {
+  const pick = () => $('#pfFile').click();
+  $('#pfAva').addEventListener('click', pick);
+  $('#pfPick').addEventListener('click', pick);
+  $('#pfClear').addEventListener('click', () => { PF.avatar = ''; paintProfileAva(''); });
+  $('#pfName').addEventListener('input', () => { if (!(PF.avatar ?? S.settings.companion_avatar)) paintProfileAva(''); });
+  $('#pfFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try { PF.avatar = await squareAvatar(f); paintProfileAva(PF.avatar); toast('Picture ready: SAVE COMPANION to keep it'); } catch (err) { toast(err.message, 'crit'); }
+  });
+  $('#profileForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const patch = { companion_name: $('#pfName').value.trim(), companion_persona: $('#pfPersona').value };
+    if (PF.avatar !== null) patch.companion_avatar = PF.avatar;
+    await saveSettings(patch);
+    PF.avatar = null;
+    applyRealm();
+    renderMessages();
+  });
 }
 const GUARD_HINT = {
   standard: 'Web content is cleaned, fenced and scanned. After a page that looks like an injection, shell, file, memory and MCP actions need your OK.',
@@ -1466,7 +1559,14 @@ themeHooks.push(id => { if (S.info?.hearth && !isCustom(id)) POST('api/hearth/th
 
 /* ═════════════ boot ═════════════ */
 (async function boot() {
-  const ready = bootSeq([
+  if (COMP) $('.boot-logo').innerHTML = 'COMPANION<span>伴侶 · PERSONAL AI</span>';
+  const ready = bootSeq(COMP ? [
+    'COMPANION 伴侶 // PERSONAL AI',
+    'warming up the core ................. <span class="ok">OK</span>',
+    'linking model providers ............. <span class="ok">OK</span>',
+    'remembering you 記憶 ................. <span class="ok">OK</span>',
+    'waking your companion ............... <span class="ok">OK</span>',
+  ] : [
     'RYUCORE 竜核 // AI COMMAND CORE',
     'igniting dragon core ................ <span class="ok">OK</span>',
     'linking model providers ............. <span class="ok">OK</span>',
@@ -1480,6 +1580,7 @@ themeHooks.push(id => { if (S.info?.hearth && !isCustom(id)) POST('api/hearth/th
     [S.info] = await Promise.all([GET('api/info'), loadSettings()]);
     setCustomThemes(S.settings.custom_themes);
   } catch (e) { toast('Core unreachable: ' + e.message, 'crit'); }
+  applyRealm();
   await Promise.all([loadModels(), loadChats(), loadMcp(true), GET('api/brain').then(r => { S.brainCount = r.stats.total; }).catch(() => {})]);
   setText($('#footInfo'), S.info.auth ? `v${S.info.version}` : `v${S.info.version} · `);
   if (!S.info.auth) $('#foot').insertAdjacentHTML('beforeend', '<span class="warn">NO LOGIN<span class="long"> — set RYU_PASSWORD before exposing beyond your LAN</span></span>');

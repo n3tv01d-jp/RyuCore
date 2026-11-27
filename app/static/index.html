@@ -53,7 +53,7 @@
       </button>
       <div class="theme-menu" id="themeMenu" hidden></div>
     </div>
-    <div class="link" id="link" title="Event link to the core"><i></i><span>NO LINK</span></div>
+    <a class="link" id="link" href="companion/" title="Open Companion 伴侶"><i></i><span>NO LINK</span><b class="lk-go" aria-hidden="true">⇄</b></a>
     <button class="tbtn nav-btn" id="navBtn" type="button" aria-controls="viewNav" aria-expanded="false" aria-label="Menu"><span class="burger" aria-hidden="true"><i></i><i></i><i></i></span></button>
   </div>
 </header>
@@ -207,6 +207,22 @@
     </form>
   </section>
   <div style="display:grid;gap:16px">
+    <section class="panel comp-only" id="profilePanel" hidden>
+      <div class="ph"><span class="no">00</span><h2>COMPANION</h2><span class="jp">伴侶</span></div>
+      <form class="g-form" id="profileForm">
+        <div class="pf-top">
+          <button class="pf-ava" id="pfAva" type="button" title="Choose a profile picture"></button>
+          <div class="pf-side">
+            <label>NAME<input id="pfName" maxlength="40" placeholder="Companion" autocomplete="off"></label>
+            <div class="row"><button class="tgl sm" id="pfPick" type="button">⤒ PICTURE</button><button class="tgl sm" id="pfClear" type="button">✕ REMOVE</button></div>
+            <input type="file" id="pfFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+          </div>
+        </div>
+        <label>PERSONA<textarea id="pfPersona" rows="6" placeholder="Who your companion is: personality, how they talk, your history together, things they care about…"></textarea></label>
+        <div class="row"><span class="sp"></span><button class="tgl on" type="submit">SAVE COMPANION</button></div>
+      </form>
+      <p class="hint">The picture shows beside every message. Chats, memories and settings here are kept apart from RyuCore; model providers and MCP servers are shared.</p>
+    </section>
     <section class="panel">
       <div class="ph"><span class="no">02</span><h2>THEME</h2><span class="jp">配色</span></div>
       <div class="sb-themes" id="themeGrid"></div>

@@ -192,6 +192,12 @@ Set `RYU_HEARTH_URL` (and `RYU_HEARTH_TOKEN` if the hub has `HEARTH_MCP_TOKEN`) 
 
 HEARTH's **竜 ASK** buttons open RyuCore at `#ask=<prompt>`: a new agent session with the prompt in the composer, ready for you to read and send. This works through the login page as well.
 
+### Companion 伴侶
+
+The **LINKED** box in the top right opens **Companion** at `/companion/` (and from there, back to RyuCore). It is the same app with every feature, but tuned to be a personal AI companion rather than an assistant, and it keeps its own sessions, brain memories, settings and workspace. Model providers, MCP servers, skills and your themes are shared, so there's nothing to set up twice.
+
+In Companion, **SYSTEM → COMPANION** sets its name, persona and profile picture. The picture is cropped to a square and shown beside each of its messages.
+
 ## Themes
 
 The nine HEARTH palettes are all here, each with its own moving background:
@@ -246,7 +252,7 @@ A provider seeded from the environment is created only once, so edits you make i
 
 ## Data & backup
 
-Everything lives in the `ryucore-data` volume (`/data`): `ryucore.db` (sessions, brain, providers, MCP config, settings), `skills/`, `workspace/` and `.secret`.
+Everything lives in the `ryucore-data` volume (`/data`): `ryucore.db` (sessions, brain, providers, MCP config, settings), `companion/` (Companion's own `companion.db` and `workspace/`), `skills/`, `workspace/` and `.secret`.
 
 ```bash
 docker run --rm -v ryucore_ryucore-data:/data -v "$PWD":/out alpine tar czf /out/ryucore-backup.tgz -C /data .

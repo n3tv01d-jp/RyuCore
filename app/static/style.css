@@ -165,6 +165,10 @@ a.brand { color: inherit; text-decoration: none; }
 .link i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; animation: blink 1s steps(2) infinite; }
 .link.on { color: var(--green); }
 .link.on i { animation: pulse 2s ease-in-out infinite; }
+a.link { text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s; }
+a.link:hover, a.link:focus-visible { background: rgba(var(--a1-rgb), .1); border-color: var(--a1); }
+.lk-go { font: 700 12px var(--f-ui); color: var(--a2); margin-left: 2px; transition: transform .2s; }
+a.link:hover .lk-go { transform: rotate(180deg); }
 @keyframes pulse { 50% { opacity: .4; } }
 /* ── panel ── */
 .panel {
@@ -1104,3 +1108,28 @@ input[type=range] { accent-color: var(--a1); }
   .fg-fx { grid-template-columns: 1fr 1fr; }
   .rs-dh, .rs-dr { grid-template-columns: 1fr repeat(4, minmax(0, 1fr)); gap: 4px; }
 }
+
+/* ── Companion 伴侶: avatar beside its messages, profile editor ── */
+.msg.ai.has-ava { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 10px; }
+.msg.ai.has-ava > :not(.m-ava) { grid-column: 2; }
+.m-ava, .cw-ava, .pf-ava { position: relative; display: grid; place-items: center; overflow: hidden; aspect-ratio: 1;
+  border: 1px solid var(--a1-d); background: radial-gradient(circle at 50% 40%, rgba(var(--a1-rgb), .22), rgba(5, 6, 13, .9) 75%);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.m-ava img, .cw-ava img, .pf-ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.m-ava.none span, .cw-ava.none span, .pf-ava.none span { font: 900 18px var(--f-disp); color: var(--a1); text-shadow: 0 0 10px var(--a1); }
+.m-ava { grid-column: 1; grid-row: 1 / span 2; align-self: start; width: 44px; margin-top: 2px; box-shadow: 0 0 12px rgba(var(--a1-rgb), .15); }
+.msg.ai.streaming .m-ava { border-color: var(--a2); }
+.cw-face { padding: 0; border: 0; background: none; color: inherit; cursor: pointer; width: 100%; }
+.cw-ava { width: 100%; }
+.cw-ava.none span { font-size: 44px; }
+.cw-face:hover .cw-ava, .cw-face:focus-visible .cw-ava { border-color: var(--a2); }
+.pf-top { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: center; }
+.pf-ava { width: 112px; padding: 0; cursor: pointer; color: inherit; }
+.pf-ava.none { grid-template-rows: 1fr auto; padding-bottom: 8px; }
+.pf-ava.none span { font-size: 36px; align-self: end; }
+.pf-ava small { font: 700 9px var(--f-disp); letter-spacing: .14em; color: var(--dim); }
+.pf-ava:hover { border-color: var(--a2); }
+.pf-side { display: grid; gap: 8px; min-width: 0; }
+.pf-side .row { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 640px) { .msg.ai.has-ava { grid-template-columns: 32px minmax(0, 1fr); column-gap: 8px; } .m-ava { width: 32px; } .m-ava.none span { font-size: 14px; } }
+#profilePanel[hidden] { display: none; }
